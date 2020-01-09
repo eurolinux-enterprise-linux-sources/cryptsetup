@@ -5,7 +5,7 @@
 Summary: A utility for setting up encrypted disks
 Name: cryptsetup
 Version: 1.7.4
-Release: 3%{?dist}.1
+Release: 4%{?dist}
 License: GPLv2+ and LGPLv2+
 Group: Applications/System
 URL: https://gitlab.com/cryptsetup/cryptsetup
@@ -27,6 +27,9 @@ Patch0: %{name}-avoid-rh-kernel-bug.patch
 Patch1: %{name}-1.7.5-fix-unaligned-access-to-hidden-truecrypt.patch
 Patch2: %{name}-1.7.5-fix-luksformat-in-fips-mode.patch
 Patch3: %{name}-1.7.6-fix-blockwise-access-functions-for-64k-page-size.patch
+Patch4: %{name}-1.7.6-crypt_deactivate-fail-earlier-when-holders-detected.patch
+Patch5: %{name}-1.7.6-cryptsetup-reencrypt-progress-frequency-parameter.patch
+Patch6: %{name}-1.7.6-dracut-reencrypt-add-progress-frequency.patch
 
 %if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
 %define configure_cipher --enable-gcrypt-pbkdf2
@@ -116,6 +119,9 @@ for setting up disk encryption using dm-crypt kernel module.
 %patch1 -p1
 %patch2 -p1
 %patch3 -p1
+%patch4 -p1
+%patch5 -p1
+%patch6 -p1
 chmod -x python/pycryptsetup-test.py
 
 %if %{python3_enable}
@@ -211,10 +217,14 @@ install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesd
 %clean
 
 %changelog
-* Thu Nov 16 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-3.el7_4.1
-- patch: fix regression in blockwise functions (archs with 64 KiB
-  page_size)
-- Resolves: #1510841
+* Thu Oct 19 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-4
+- patch: fix regression in blockwise functions
+- patch: avoid repeating error messages when device holders
+  detected.
+- patch: add option to cryptsetup-reencrypt to print progress
+  log sequentaly
+- patch: use --progress-frequency in reencryption dracut module
+- Resolves: #1480006 #1447632 #1479857
 
 * Tue Apr 25 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-3
 - patch: fix luksFormat failure while running in FIPS mode.
