@@ -1,0 +1,376 @@
+From a117f431179a2747f2b1d5293f43d9e198f1bac9 Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Mon, 30 Nov 2015 16:44:15 +0100
+Subject: [PATCH] Fix access to unaligned hidden TrueCrypt header.
+
+backport all changes needed to fix unaligned access
+to hidden TrueCrypt hedaer.
+---
+ lib/internal.h        |   7 ++-
+ lib/luks1/keymanage.c |   6 +-
+ lib/tcrypt/tcrypt.c   |  24 ++++----
+ lib/utils.c           | 155 +++++++++++++++++++++++++++++++++++++++++++-------
+ 4 files changed, 152 insertions(+), 40 deletions(-)
+
+diff --git a/lib/internal.h b/lib/internal.h
+index 382a600..f1525f2 100644
+--- a/lib/internal.h
++++ b/lib/internal.h
+@@ -101,9 +101,12 @@ char *crypt_get_partition_device(const char *dev_path, uint64_t offset, uint64_t
+ char *crypt_get_base_device(const char *dev_path);
+ uint64_t crypt_dev_partition_offset(const char *dev_path);
+ 
++ssize_t write_buffer(int fd, const void *buf, size_t count);
++ssize_t read_buffer(int fd, void *buf, size_t count);
+ ssize_t write_blockwise(int fd, int bsize, void *buf, size_t count);
+-ssize_t read_blockwise(int fd, int bsize, void *_buf, size_t count);
+-ssize_t write_lseek_blockwise(int fd, int bsize, char *buf, size_t count, off_t offset);
++ssize_t read_blockwise(int fd, int bsize, void *buf, size_t count);
++ssize_t write_lseek_blockwise(int fd, int bsize, void *buf, size_t count, off_t offset);
++ssize_t read_lseek_blockwise(int fd, int bsize, void *buf, size_t count, off_t offset);
+ 
+ unsigned crypt_getpagesize(void);
+ int init_crypto(struct crypt_device *ctx);
+diff --git a/lib/luks1/keymanage.c b/lib/luks1/keymanage.c
+index 23e3fe2..b193ee9 100644
+--- a/lib/luks1/keymanage.c
++++ b/lib/luks1/keymanage.c
+@@ -201,7 +201,7 @@ int LUKS_hdr_backup(const char *backup_file, struct crypt_device *ctx)
+ 		r = -EINVAL;
+ 		goto out;
+ 	}
+-	if (write(devfd, buffer, buffer_size) < buffer_size) {
++	if (write_buffer(devfd, buffer, buffer_size) < buffer_size) {
+ 		log_err(ctx, _("Cannot write header backup file %s.\n"), backup_file);
+ 		r = -EIO;
+ 		goto out;
+@@ -253,7 +253,7 @@ int LUKS_hdr_restore(
+ 		goto out;
+ 	}
+ 
+-	if (read(devfd, buffer, buffer_size) < buffer_size) {
++	if (read_buffer(devfd, buffer, buffer_size) < buffer_size) {
+ 		log_err(ctx, _("Cannot read header backup file %s.\n"), backup_file);
+ 		r = -EIO;
+ 		goto out;
+@@ -498,7 +498,7 @@ int LUKS_read_phdr_backup(const char *backup_file,
+ 		return -ENOENT;
+ 	}
+ 
+-	if (read(devfd, hdr, hdr_size) < hdr_size)
++	if (read_buffer(devfd, hdr, hdr_size) < hdr_size)
+ 		r = -EIO;
+ 	else {
+ 		LUKS_fix_header_compatible(hdr);
+diff --git a/lib/tcrypt/tcrypt.c b/lib/tcrypt/tcrypt.c
+index 45154ed..9ff7157 100644
+--- a/lib/tcrypt/tcrypt.c
++++ b/lib/tcrypt/tcrypt.c
+@@ -469,8 +469,7 @@ static int TCRYPT_pool_keyfile(struct crypt_device *cd,
+ 		return -EIO;
+ 	}
+ 
+-	/* FIXME: add while */
+-	data_size = read(fd, data, TCRYPT_KEYFILE_LEN);
++	data_size = read_buffer(fd, data, TCRYPT_KEYFILE_LEN);
+ 	close(fd);
+ 	if (data_size < 0) {
+ 		log_err(cd, _("Error reading keyfile %s.\n"), keyfile);
+@@ -628,27 +627,26 @@ int TCRYPT_read_phdr(struct crypt_device *cd,
+ 
+ 	r = -EIO;
+ 	if (params->flags & CRYPT_TCRYPT_SYSTEM_HEADER) {
+-		if (lseek(devfd, TCRYPT_HDR_SYSTEM_OFFSET, SEEK_SET) >= 0 &&
+-		    read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size) {
++		if (read_lseek_blockwise(devfd, bs, hdr, hdr_size,
++			TCRYPT_HDR_SYSTEM_OFFSET) == hdr_size) {
+ 			r = TCRYPT_init_hdr(cd, hdr, params);
+ 		}
+ 	} else if (params->flags & CRYPT_TCRYPT_HIDDEN_HEADER) {
+ 		if (params->flags & CRYPT_TCRYPT_BACKUP_HEADER) {
+-			if (lseek(devfd, TCRYPT_HDR_HIDDEN_OFFSET_BCK, SEEK_END) >= 0 &&
+-			    read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size)
++			if (read_lseek_blockwise(devfd, bs, hdr, hdr_size,
++				TCRYPT_HDR_HIDDEN_OFFSET_BCK) == hdr_size)
+ 				r = TCRYPT_init_hdr(cd, hdr, params);
+ 		} else {
+-			if (lseek(devfd, TCRYPT_HDR_HIDDEN_OFFSET, SEEK_SET) >= 0 &&
+-			    read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size)
++			if (read_lseek_blockwise(devfd, bs, hdr, hdr_size,
++				TCRYPT_HDR_HIDDEN_OFFSET) == hdr_size)
+ 				r = TCRYPT_init_hdr(cd, hdr, params);
+-			if (r &&
+-			    lseek(devfd, TCRYPT_HDR_HIDDEN_OFFSET_OLD, SEEK_END) >= 0 &&
+-			    read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size)
++			if (r && read_lseek_blockwise(devfd, bs, hdr, hdr_size,
++				TCRYPT_HDR_HIDDEN_OFFSET_OLD) == hdr_size)
+ 				r = TCRYPT_init_hdr(cd, hdr, params);
+ 		}
+ 	} else if (params->flags & CRYPT_TCRYPT_BACKUP_HEADER) {
+-		if (lseek(devfd, TCRYPT_HDR_OFFSET_BCK, SEEK_END) >= 0 &&
+-			    read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size)
++		if (read_lseek_blockwise(devfd, bs, hdr, hdr_size,
++			TCRYPT_HDR_OFFSET_BCK) == hdr_size)
+ 			r = TCRYPT_init_hdr(cd, hdr, params);
+ 	} else if (read_blockwise(devfd, bs, hdr, hdr_size) == hdr_size)
+ 		r = TCRYPT_init_hdr(cd, hdr, params);
+diff --git a/lib/utils.c b/lib/utils.c
+index 2dcf753..802ba55 100644
+--- a/lib/utils.c
++++ b/lib/utils.c
+@@ -56,22 +56,70 @@ static void *aligned_malloc(void **base, int size, int alignment)
+ /* Credits go to Michal's padlock patches for this alignment code */
+ 	char *ptr;
+ 
+-	ptr  = malloc(size + alignment);
+-	if(ptr == NULL) return NULL;
++	ptr = malloc(size + alignment);
++	if (!ptr)
++		return NULL;
+ 
+ 	*base = ptr;
+-	if(alignment > 1 && ((long)ptr & (alignment - 1))) {
++	if (alignment > 1 && ((long)ptr & (alignment - 1)))
+ 		ptr += alignment - ((long)(ptr) & (alignment - 1));
+-	}
++
+ 	return ptr;
+ #endif
+ }
+ 
++ssize_t read_buffer(int fd, void *buf, size_t count)
++{
++	size_t read_size = 0;
++	ssize_t r;
++
++	if (fd < 0 || !buf)
++		return -EINVAL;
++
++	do {
++		r = read(fd, buf, count - read_size);
++		if (r == -1 && errno != EINTR)
++			return r;
++		if (r == 0)
++			return (ssize_t)read_size;
++		if (r > 0) {
++			read_size += (size_t)r;
++			buf = (uint8_t*)buf + r;
++		}
++	} while (read_size != count);
++
++	return (ssize_t)count;
++}
++
++ssize_t write_buffer(int fd, const void *buf, size_t count)
++{
++	size_t write_size = 0;
++	ssize_t w;
++
++	if (fd < 0 || !buf || !count)
++		return -EINVAL;
++
++	do {
++		w = write(fd, buf, count - write_size);
++		if (w < 0 && errno != EINTR)
++			return w;
++		if (w == 0)
++			return (ssize_t)write_size;
++		if (w > 0) {
++			write_size += (size_t) w;
++			buf = (const uint8_t*)buf + w;
++		}
++	} while (write_size != count);
++
++	return (ssize_t)write_size;
++}
++
+ ssize_t write_blockwise(int fd, int bsize, void *orig_buf, size_t count)
+ {
+ 	void *hangover_buf, *hangover_buf_base = NULL;
+ 	void *buf, *buf_base = NULL;
+-	int r, hangover, solid, alignment;
++	int r, alignment;
++	size_t hangover, solid;
+ 	ssize_t ret = -1;
+ 
+ 	if (fd == -1 || !orig_buf || bsize <= 0)
+@@ -89,17 +137,19 @@ ssize_t write_blockwise(int fd, int bsize, void *orig_buf, size_t count)
+ 	} else
+ 		buf = orig_buf;
+ 
+-	r = write(fd, buf, solid);
+-	if (r < 0 || r != solid)
+-		goto out;
++	if (solid) {
++		r = write_buffer(fd, buf, solid);
++		if (r < 0 || r != (ssize_t)solid)
++			goto out;
++	}
+ 
+ 	if (hangover) {
+ 		hangover_buf = aligned_malloc(&hangover_buf_base, bsize, alignment);
+ 		if (!hangover_buf)
+ 			goto out;
+ 
+-		r = read(fd, hangover_buf, bsize);
+-		if (r < 0 || r < hangover)
++		r = read_buffer(fd, hangover_buf, bsize);
++		if (r < 0 || r < (ssize_t)hangover)
+ 			goto out;
+ 
+ 		if (r < bsize)
+@@ -110,8 +160,8 @@ ssize_t write_blockwise(int fd, int bsize, void *orig_buf, size_t count)
+ 
+ 		memcpy(hangover_buf, (char*)buf + solid, hangover);
+ 
+-		r = write(fd, hangover_buf, bsize);
+-		if (r < 0 || r < hangover)
++		r = write_buffer(fd, hangover_buf, bsize);
++		if (r < 0 || r < (ssize_t)hangover)
+ 			goto out;
+ 	}
+ 	ret = count;
+@@ -122,10 +172,12 @@ out:
+ 	return ret;
+ }
+ 
+-ssize_t read_blockwise(int fd, int bsize, void *orig_buf, size_t count) {
++ssize_t read_blockwise(int fd, int bsize, void *orig_buf, size_t count)
++{
+ 	void *hangover_buf, *hangover_buf_base = NULL;
+ 	void *buf, *buf_base = NULL;
+-	int r, hangover, solid, alignment;
++	int r, alignment;
++	size_t hangover, solid;
+ 	ssize_t ret = -1;
+ 
+ 	if (fd == -1 || !orig_buf || bsize <= 0)
+@@ -142,16 +194,16 @@ ssize_t read_blockwise(int fd, int bsize, void *orig_buf, size_t count) {
+ 	} else
+ 		buf = orig_buf;
+ 
+-	r = read(fd, buf, solid);
+-	if(r < 0 || r != solid)
++	r = read_buffer(fd, buf, solid);
++	if (r < 0 || r != (ssize_t)solid)
+ 		goto out;
+ 
+ 	if (hangover) {
+ 		hangover_buf = aligned_malloc(&hangover_buf_base, bsize, alignment);
+ 		if (!hangover_buf)
+ 			goto out;
+-		r = read(fd, hangover_buf, bsize);
+-		if (r <  0 || r < hangover)
++		r = read_buffer(fd, hangover_buf, bsize);
++		if (r <  0 || r < (ssize_t)hangover)
+ 			goto out;
+ 
+ 		memcpy((char *)buf + solid, hangover_buf, hangover);
+@@ -172,7 +224,8 @@ out:
+  * is implicitly included in the read/write offset, which can not be set to non-aligned
+  * boundaries. Hence, we combine llseek with write.
+  */
+-ssize_t write_lseek_blockwise(int fd, int bsize, char *buf, size_t count, off_t offset) {
++ssize_t write_lseek_blockwise(int fd, int bsize, void *buf, size_t count, off_t offset)
++{
+ 	char *frontPadBuf;
+ 	void *frontPadBuf_base = NULL;
+ 	int r, frontHang;
+@@ -182,6 +235,12 @@ ssize_t write_lseek_blockwise(int fd, int bsize, char *buf, size_t count, off_t
+ 	if (fd == -1 || !buf || bsize <= 0)
+ 		return -1;
+ 
++	if (offset < 0)
++		offset = lseek(fd, offset, SEEK_END);
++
++	if (offset < 0)
++		return -1;
++
+ 	frontHang = offset % bsize;
+ 
+ 	if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
+@@ -193,7 +252,7 @@ ssize_t write_lseek_blockwise(int fd, int bsize, char *buf, size_t count, off_t
+ 		if (!frontPadBuf)
+ 			goto out;
+ 
+-		r = read(fd, frontPadBuf, bsize);
++		r = read_buffer(fd, frontPadBuf, bsize);
+ 		if (r < 0 || r != bsize)
+ 			goto out;
+ 
+@@ -206,11 +265,11 @@ ssize_t write_lseek_blockwise(int fd, int bsize, char *buf, size_t count, off_t
+ 		if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
+ 			goto out;
+ 
+-		r = write(fd, frontPadBuf, bsize);
++		r = write_buffer(fd, frontPadBuf, bsize);
+ 		if (r < 0 || r != bsize)
+ 			goto out;
+ 
+-		buf += innerCount;
++		buf = (char*)buf + innerCount;
+ 		count -= innerCount;
+ 	}
+ 
+@@ -223,6 +282,58 @@ out:
+ 	return ret;
+ }
+ 
++ssize_t read_lseek_blockwise(int fd, int bsize, void *buf, size_t count, off_t offset)
++{
++	char *frontPadBuf;
++	void *frontPadBuf_base = NULL;
++	int r, frontHang;
++	size_t innerCount = 0;
++	ssize_t ret = -1;
++
++	if (fd == -1 || !buf || bsize <= 0)
++		return -1;
++
++	if (offset < 0)
++		offset = lseek(fd, offset, SEEK_END);
++
++	if (offset < 0)
++		return -1;
++
++	frontHang = offset % bsize;
++
++	if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
++		return ret;
++
++	if (frontHang) {
++		frontPadBuf = aligned_malloc(&frontPadBuf_base,
++					     bsize, get_alignment(fd));
++
++		if (!frontPadBuf)
++			return ret;
++
++		r = read_buffer(fd, frontPadBuf, bsize);
++		if (r < 0 || r != bsize)
++			goto out;
++
++		innerCount = bsize - frontHang;
++		if (innerCount > count)
++			innerCount = count;
++
++		memcpy(buf, frontPadBuf + frontHang, innerCount);
++
++		buf = (char*)buf + innerCount;
++		count -= innerCount;
++	}
++
++	ret = read_blockwise(fd, bsize, buf, count);
++	if (ret >= 0)
++		ret += innerCount;
++out:
++	free(frontPadBuf_base);
++
++	return ret;
++}
++
+ /* MEMLOCK */
+ #define DEFAULT_PROCESS_PRIORITY -18
+ 
+-- 
+2.7.4
+
