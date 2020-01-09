@@ -1,0 +1,50 @@
+diff -rupN cryptsetup-1.7.4.bcp/lib/utils.c cryptsetup-1.7.4/lib/utils.c
+--- cryptsetup-1.7.4.bcp/lib/utils.c	2017-10-18 11:39:01.694902755 +0200
++++ cryptsetup-1.7.4/lib/utils.c	2017-10-18 11:48:16.584868357 +0200
+@@ -252,21 +252,21 @@ ssize_t write_lseek_blockwise(int fd, in
+ 		if (!frontPadBuf)
+ 			goto out;
+ 
+-		r = read_buffer(fd, frontPadBuf, bsize);
+-		if (r < 0 || r != bsize)
+-			goto out;
+-
+ 		innerCount = bsize - frontHang;
+ 		if (innerCount > count)
+ 			innerCount = count;
+ 
++		r = read_buffer(fd, frontPadBuf, bsize);
++		if (r < (frontHang + innerCount))
++			goto out;
++
+ 		memcpy(frontPadBuf + frontHang, buf, innerCount);
+ 
+ 		if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
+ 			goto out;
+ 
+-		r = write_buffer(fd, frontPadBuf, bsize);
+-		if (r < 0 || r != bsize)
++		r = write_buffer(fd, frontPadBuf, frontHang + innerCount);
++		if (r != (frontHang + innerCount))
+ 			goto out;
+ 
+ 		buf = (char*)buf + innerCount;
+@@ -311,14 +311,14 @@ ssize_t read_lseek_blockwise(int fd, int
+ 		if (!frontPadBuf)
+ 			return ret;
+ 
+-		r = read_buffer(fd, frontPadBuf, bsize);
+-		if (r < 0 || r != bsize)
+-			goto out;
+-
+ 		innerCount = bsize - frontHang;
+ 		if (innerCount > count)
+ 			innerCount = count;
+ 
++		r = read_buffer(fd, frontPadBuf, bsize);
++		if (r < (frontHang + innerCount))
++			goto out;
++
+ 		memcpy(buf, frontPadBuf + frontHang, innerCount);
+ 
+ 		buf = (char*)buf + innerCount;

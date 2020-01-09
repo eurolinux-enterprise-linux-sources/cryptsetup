@@ -5,7 +5,7 @@
 Summary: A utility for setting up encrypted disks
 Name: cryptsetup
 Version: 1.7.4
-Release: 3%{?dist}
+Release: 3%{?dist}.1
 License: GPLv2+ and LGPLv2+
 Group: Applications/System
 URL: https://gitlab.com/cryptsetup/cryptsetup
@@ -26,6 +26,7 @@ Source0: https://www.kernel.org/pub/linux/utils/cryptsetup/v1.6/cryptsetup-%{ups
 Patch0: %{name}-avoid-rh-kernel-bug.patch
 Patch1: %{name}-1.7.5-fix-unaligned-access-to-hidden-truecrypt.patch
 Patch2: %{name}-1.7.5-fix-luksformat-in-fips-mode.patch
+Patch3: %{name}-1.7.6-fix-blockwise-access-functions-for-64k-page-size.patch
 
 %if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
 %define configure_cipher --enable-gcrypt-pbkdf2
@@ -114,6 +115,7 @@ for setting up disk encryption using dm-crypt kernel module.
 %patch0 -p1
 %patch1 -p1
 %patch2 -p1
+%patch3 -p1
 chmod -x python/pycryptsetup-test.py
 
 %if %{python3_enable}
@@ -209,6 +211,11 @@ install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesd
 %clean
 
 %changelog
+* Thu Nov 16 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-3.el7_4.1
+- patch: fix regression in blockwise functions (archs with 64 KiB
+  page_size)
+- Resolves: #1510841
+
 * Tue Apr 25 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-3
 - patch: fix luksFormat failure while running in FIPS mode.
 - Resolves: #1444137
