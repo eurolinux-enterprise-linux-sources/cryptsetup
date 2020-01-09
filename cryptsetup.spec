@@ -1,19 +1,51 @@
 %{!?python_sitearch: %global python_sitearch %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib(1)")}
 
-%define python3_enable 0
+%if 0%{?fedora}
+%if 0%{?fedora} >= 29
+Obsoletes: python2-cryptsetup
+Obsoletes: cryptsetup-python3
+%global python2_enable 0
+%global python3_enable 0
+%else
+%global python2_enable 1
+%global python3_enable 1
+%endif
+%else
+Obsoletes: cryptsetup-python3
+%global python3_enable 0
+%if 0%{?rhel} == 7
+%global python2_enable 1
+# Change to 1 when argon2 lands
+%global libargon2_enable 0
+# Change to 1 when dm-integrity gets backported
+%global integritysetup_enable 0
+%else
+Obsoletes: cryptsetup-python
+Obsoletes: python2-cryptsetup
+%global python2_enable 0
+%endif
+%endif
+
 
 Summary: A utility for setting up encrypted disks
 Name: cryptsetup
-Version: 1.7.4
-Release: 4%{?dist}
+Version: 2.0.3
+Release: 3%{?dist}
 License: GPLv2+ and LGPLv2+
 Group: Applications/System
 URL: https://gitlab.com/cryptsetup/cryptsetup
 BuildRequires: libgcrypt-devel, popt-devel, device-mapper-devel
 BuildRequires: libgpg-error-devel, libuuid-devel, libsepol-devel
-BuildRequires: libselinux-devel, python-devel, libpwquality-devel
+BuildRequires: libselinux-devel, gcc, libblkid-devel
+%if %{python2_enable}
+BuildRequires: python-devel
+%endif
 %if %{python3_enable}
 BuildRequires: python3-devel
+%endif
+BuildRequires: libpwquality-devel, json-c-devel
+%if 0%{?libargon2_enable}
+BuildRequires: libargon2-devel
 %endif
 Provides: cryptsetup-luks = %{version}-%{release}
 Obsoletes: cryptsetup-luks < 1.4.0
@@ -22,19 +54,48 @@ Requires: libpwquality >= 1.2.0
 
 %define dracutmodulesdir %{_prefix}/lib/dracut/modules.d
 %define upstream_version %{version}
-Source0: https://www.kernel.org/pub/linux/utils/cryptsetup/v1.6/cryptsetup-%{upstream_version}.tar.xz
+%define upstream_version_old 1.7.4
+Source0: https://www.kernel.org/pub/linux/utils/cryptsetup/v2.0/cryptsetup-%{upstream_version}.tar.xz
+Source1: https://www.kernel.org/pub/linux/utils/cryptsetup/v1.7/cryptsetup-%{upstream_version_old}.tar.xz
+# version 1.7.4 only (all of it, up to next comment)
 Patch0: %{name}-avoid-rh-kernel-bug.patch
 Patch1: %{name}-1.7.5-fix-unaligned-access-to-hidden-truecrypt.patch
 Patch2: %{name}-1.7.5-fix-luksformat-in-fips-mode.patch
 Patch3: %{name}-1.7.6-fix-blockwise-access-functions-for-64k-page-size.patch
 Patch4: %{name}-1.7.6-crypt_deactivate-fail-earlier-when-holders-detected.patch
-Patch5: %{name}-1.7.6-cryptsetup-reencrypt-progress-frequency-parameter.patch
-Patch6: %{name}-1.7.6-dracut-reencrypt-add-progress-frequency.patch
+# 2.0.x only
+Patch5: %{name}-2.0.4-dracut-reencrypt.patch
+Patch6: %{name}-new-avoid-rh-kernel-bug.patch
+Patch7: %{name}-sector-size-detection.patch
+Patch8: %{name}-tests-device-test.patch
+Patch9: %{name}-argon2-fips.patch
+Patch10: %{name}-2.0.4-zero-length-lseek-blockwise-i-o-should-return-zero.patch
+Patch11: %{name}-2.0.4-fix-write_lseek_blockwise-for-in-the-middle-of-secto.patch
+Patch12: %{name}-2.0.4-fix-write_blockwise-on-short-files.patch
+Patch13: %{name}-2.0.4-add-blkid-utilities-for-fast-detection-of-device-sig.patch
+Patch14: %{name}-2.0.4-make-LUKS2-auto-recovery-aware-of-device-signatures.patch
+Patch15: %{name}-2.0.4-allow-LUKS2-repair-to-override-blkid-checks.patch
+Patch16: %{name}-2.0.4-allow-explicit-LUKS2-repair.patch
+Patch17: %{name}-2.0.4-update-crypt_repair-API-documentation-for-LUKS2.patch
+Patch18: %{name}-2.0.4-allow-LUKS2-repair-with-disabled-locks.patch
+# the configure patch must be applied last
+Patch19: %{name}-2.0.4-configure.patch
+Patch20: %{name}-2.0.4-update-cryptsetup-man-page-for-type-option-usage.patch
+Patch21: %{name}-2.0.4-rephrase-error-message-for-invalid-type-param-in-con.patch
 
 %if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
 %define configure_cipher --enable-gcrypt-pbkdf2
 %else
 %define configure_cipher --with-luks1-cipher=aes --with-luks1-mode=cbc-essiv:sha256 --with-luks1-keybits=256
+%endif
+
+%if 0%{?libargon2_enable}
+%define configure_libargon2 --enable-libargon2
+%endif
+%if 0%{?integritysetup_enable}
+%define configure_integritysetup --enable-integritysetup
+%else
+%define configure_integritysetup --disable-integritysetup
 %endif
 
 %description
@@ -115,22 +176,49 @@ for setting up disk encryption using dm-crypt kernel module.
 
 %prep
 %setup -q -n cryptsetup-%{upstream_version}
-%patch0 -p1
-%patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
 %patch5 -p1
 %patch6 -p1
+%patch7 -p1
+%patch8 -p1
+%patch9 -p1
+%patch10 -p1
+%patch11 -p1
+%patch12 -p1
+%patch13 -p1
+%patch14 -p1
+%patch15 -p1
+%patch16 -p1
+%patch17 -p1
+%patch18 -p1
+%patch20 -p1
+%patch21 -p1
+# the configure patch (always last)
+%patch19 -p1
 chmod -x python/pycryptsetup-test.py
+chmod -x misc/dracut_90reencrypt/*
 
 %if %{python3_enable}
 # copy the whole directory for the python3 build
 cp -a . %{py3dir}
 %endif
 
+%setup -T -a 1 -D -n cryptsetup-%{upstream_version}
+pushd cryptsetup-1.7.4
+%patch0 -p1
+%patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
+
 %build
-%configure --enable-python --enable-fips --enable-cryptsetup-reencrypt --enable-pwquality %{?configure_cipher}
+%configure --enable-fips --enable-pwquality --with-default-luks-format=LUKS1 %{?configure_cipher} %{?configure_libargon2} %{?configure_integritysetup}
+pushd cryptsetup-1.7.4
+%configure --enable-python --enable-fips --enable-pwquality --disable-cryptsetup-reencrypt --disable-veritysetup %{?configure_cipher}
+# remove rpath
+sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
+sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
+make %{?_smp_mflags}
+popd
 # remove rpath
 sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' libtool
 sed -i 's|^runpath_var=LD_RUN_PATH|runpath_var=DIE_RPATH_DIE|g' libtool
@@ -144,6 +232,9 @@ popd
 %endif
 
 %install
+pushd cryptsetup-1.7.4
+make install DESTDIR=%{buildroot}
+popd
 make install DESTDIR=%{buildroot}
 rm -rf %{buildroot}/%{_libdir}/*.la
 
@@ -160,6 +251,7 @@ install -d -m755 %{buildroot}/%{dracutmodulesdir}/90reencrypt
 install -m755 misc/dracut_90reencrypt/module-setup.sh %{buildroot}/%{dracutmodulesdir}/90reencrypt
 install -m755 misc/dracut_90reencrypt/parse-reencrypt.sh %{buildroot}/%{dracutmodulesdir}/90reencrypt
 install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesdir}/90reencrypt
+install -m755 misc/dracut_90reencrypt/reencrypt-verbose.sh %{buildroot}/%{dracutmodulesdir}/90reencrypt
 
 %post -n cryptsetup-libs -p /sbin/ldconfig
 
@@ -177,6 +269,14 @@ install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesd
 %license COPYING
 %{_mandir}/man8/veritysetup.8.gz
 %{_sbindir}/veritysetup
+
+%if %{integritysetup_enable}
+%files -n integritysetup
+%{!?_licensedir:%global license %%doc}
+%license COPYING
+%{_mandir}/man8/integritysetup.8.gz
+%{_sbindir}/integritysetup
+%endif
 
 %files reencrypt
 %{!?_licensedir:%global license %%doc}
@@ -197,6 +297,8 @@ install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesd
 %{!?_licensedir:%global license %%doc}
 %license COPYING COPYING.LGPL
 %{_libdir}/libcryptsetup.so.*
+%{_tmpfilesdir}/cryptsetup.conf
+%ghost %attr(700, -, -) %dir /run/cryptsetup
 
 %files python
 %{!?_licensedir:%global license %%doc}
@@ -217,6 +319,24 @@ install -m755 misc/dracut_90reencrypt/reencrypt.sh %{buildroot}/%{dracutmodulesd
 %clean
 
 %changelog
+* Tue Jul 31 2018 Ondrej Kozina <okozina@redhat.com> - 2.0.3-3
+- Add expected permissions explicitly for locking directory.
+- Reinstate sed script removing library rpath from libtool
+  script due to bug in upstream sources distribution.
+- Resolves: #1609847 #1610379
+
+* Mon Jul 16 2018 Ondrej Kozina <okozina@redhat.com> - 2.0.3-2
+- patch: stop LUKS2 auto-recovery if device is no longer LUKS
+  type
+- patch: update cryptsetup man page for --type option
+- patch: rephrase error message for invalid --type option in
+  convert action
+- Resolves: #1599281 #1601477 #1601481
+
+* Wed Jun 20 2018 Ondrej Kozina <okozina@redhat.com> - 2.0.3-1
+- Update to cryptsetup 2.0.3.
+- Resolves: #1475904 #1380347 #1416174 #1536105 #1574239
+
 * Thu Oct 19 2017 Ondrej Kozina <okozina@redhat.com> - 1.7.4-4
 - patch: fix regression in blockwise functions
 - patch: avoid repeating error messages when device holders

@@ -1,0 +1,59 @@
+diff -rupN cryptsetup-2.0.3.old/lib/crypto_backend/crypto_cipher_kernel.c cryptsetup-2.0.3/lib/crypto_backend/crypto_cipher_kernel.c
+--- cryptsetup-2.0.3.old/lib/crypto_backend/crypto_cipher_kernel.c	2018-04-17 09:20:35.000000000 +0200
++++ cryptsetup-2.0.3/lib/crypto_backend/crypto_cipher_kernel.c	2018-05-07 14:13:45.176124062 +0200
+@@ -31,6 +31,7 @@
+ #ifdef ENABLE_AF_ALG
+ 
+ #include <linux/if_alg.h>
++#include <sys/utsname.h>
+ 
+ #ifndef AF_ALG
+ #define AF_ALG 38
+@@ -44,6 +45,36 @@ struct crypt_cipher {
+ 	int opfd;
+ };
+ 
++ 
++static size_t pagesize(size_t defsize)
++{
++	long r = sysconf(_SC_PAGESIZE);
++	return r < 0 ? defsize : (size_t)r;
++}
++
++static int check_rh_kernel_version(void)
++{
++	unsigned maj, mid, min, rel;
++	static struct utsname uts = {{ 0 }};
++	size_t ps = pagesize(32768);
++
++	if (ps < 32768)
++		return 0;
++
++	if (!*uts.release && uname(&uts) < 0)
++		return -ENOTSUP;
++	/*
++	 * RH kernels 3.10.0-185 and lower are affected by a crypto API kernel
++	 * socket bug. The bug only manifests on archs with page size >= 32 KiB.
++	 *
++	 * For reference, see rhbz#1136075
++	 */
++	if (sscanf(uts.release, "%u.%u.%u-%u", &maj, &mid, &min, &rel) == 4)
++		return (maj == 3 && mid == 10 && min == 0 && rel < 186) ? -ENOTSUP : 0;
++
++	return -ENOTSUP;
++}
++
+ /*
+  * ciphers
+  *
+@@ -60,6 +91,9 @@ int crypt_cipher_init(struct crypt_ciphe
+ 		.salg_type = "skcipher",
+ 	};
+ 
++	if (check_rh_kernel_version())
++		return -ENOTSUP;
++
+ 	h = malloc(sizeof(*h));
+ 	if (!h)
+ 		return -ENOMEM;
+Binary files cryptsetup-2.0.3.old/lib/crypto_backend/.crypto_cipher_kernel.c.rej.swp and cryptsetup-2.0.3/lib/crypto_backend/.crypto_cipher_kernel.c.rej.swp differ

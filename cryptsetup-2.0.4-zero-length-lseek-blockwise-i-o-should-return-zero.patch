@@ -1,0 +1,39 @@
+From 685bcc56351b3e46b69d46118d23268b69052097 Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Tue, 19 Jun 2018 14:07:20 +0200
+Subject: [PATCH 1/4] Zero length lseek blockwise i/o should return zero.
+
+Note that both functions perform seek operations aligned to sector
+boundary if possible before returning.
+
+Unaligned input offset gets aligned on first preceding sector
+boundary.
+---
+ lib/utils_io.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/utils_io.c b/lib/utils_io.c
+index 0f671d6..94c4ef6 100644
+--- a/lib/utils_io.c
++++ b/lib/utils_io.c
+@@ -199,7 +199,7 @@ ssize_t write_lseek_blockwise(int fd, size_t bsize, size_t alignment,
+ 	if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
+ 		return -1;
+ 
+-	if (frontHang) {
++	if (frontHang && length) {
+ 		if (posix_memalign(&frontPadBuf, alignment, bsize))
+ 			return -1;
+ 
+@@ -253,7 +253,7 @@ ssize_t read_lseek_blockwise(int fd, size_t bsize, size_t alignment,
+ 	if (lseek(fd, offset - frontHang, SEEK_SET) < 0)
+ 		return -1;
+ 
+-	if (frontHang) {
++	if (frontHang && length) {
+ 		if (posix_memalign(&frontPadBuf, alignment, bsize))
+ 			return -1;
+ 
+-- 
+1.8.3.1
+

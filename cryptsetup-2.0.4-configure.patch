@@ -1,0 +1,397 @@
+--- cryptsetup-2.0.3.old/config.h.in	2018-05-03 21:37:10.000000000 +0200
++++ cryptsetup-2.0.3/config.h.in	2018-07-16 09:58:36.283929571 +0200
+@@ -106,6 +106,12 @@
+ /* Define to 1 if you have the <argon2.h> header file. */
+ #undef HAVE_ARGON2_H
+ 
++/* Define to 1 to use blkid for detection of disk signatures. */
++#undef HAVE_BLKID
++
++/* Define to 1 if you have the <blkid/blkid.h> header file. */
++#undef HAVE_BLKID_BLKID_H
++
+ /* Define to 1 if you have the <byteswap.h> header file. */
+ #undef HAVE_BYTESWAP_H
+ 
+@@ -127,6 +133,30 @@
+    */
+ #undef HAVE_DCGETTEXT
+ 
++/* Define to 1 if you have the declaration of `blkid_do_probe', and to 0 if
++   you don't. */
++#undef HAVE_DECL_BLKID_DO_PROBE
++
++/* Define to 1 if you have the declaration of `blkid_do_safeprobe', and to 0
++   if you don't. */
++#undef HAVE_DECL_BLKID_DO_SAFEPROBE
++
++/* Define to 1 if you have the declaration of
++   `blkid_probe_filter_superblocks_type', and to 0 if you don't. */
++#undef HAVE_DECL_BLKID_PROBE_FILTER_SUPERBLOCKS_TYPE
++
++/* Define to 1 if you have the declaration of `blkid_probe_lookup_value ', and
++   to 0 if you don't. */
++#undef HAVE_DECL_BLKID_PROBE_LOOKUP_VALUE__________
++
++/* Define to 1 if you have the declaration of `blkid_probe_set_device', and to
++   0 if you don't. */
++#undef HAVE_DECL_BLKID_PROBE_SET_DEVICE
++
++/* Define to 1 if you have the declaration of `blkid_reset_probe', and to 0 if
++   you don't. */
++#undef HAVE_DECL_BLKID_RESET_PROBE
++
+ /* Define to 1 if you have the declaration of `dm_device_has_holders', and to
+    0 if you don't. */
+ #undef HAVE_DECL_DM_DEVICE_HAS_HOLDERS
+--- cryptsetup-2.0.3.old/Makefile.in	2018-05-03 21:36:55.000000000 +0200
++++ cryptsetup-2.0.3/Makefile.in	2018-07-16 09:58:36.240929810 +0200
+@@ -270,7 +270,8 @@ am_libcryptsetup_la_OBJECTS = lib/libcry
+ 	lib/luks2/libcryptsetup_la-luks2_keyslot.lo \
+ 	lib/luks2/libcryptsetup_la-luks2_keyslot_luks2.lo \
+ 	lib/luks2/libcryptsetup_la-luks2_token_keyring.lo \
+-	lib/luks2/libcryptsetup_la-luks2_token.lo
++	lib/luks2/libcryptsetup_la-luks2_token.lo \
++	lib/libcryptsetup_la-utils_blkid.lo
+ libcryptsetup_la_OBJECTS = $(am_libcryptsetup_la_OBJECTS)
+ libcryptsetup_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
+ 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
+@@ -591,6 +592,8 @@ AUTOCONF = @AUTOCONF@
+ AUTOHEADER = @AUTOHEADER@
+ AUTOMAKE = @AUTOMAKE@
+ AWK = @AWK@
++BLKID_CFLAGS = @BLKID_CFLAGS@
++BLKID_LIBS = @BLKID_LIBS@
+ CC = @CC@
+ CCDEPMODE = @CCDEPMODE@
+ CFLAGS = @CFLAGS@
+@@ -846,6 +849,7 @@ libcryptsetup_la_LIBADD = \
+ 	@CRYPTO_LIBS@		\
+ 	@LIBARGON2_LIBS@	\
+ 	@JSON_C_LIBS@		\
++	@BLKID_LIBS@		\
+ 	libcrypto_backend.la
+ 
+ libcryptsetup_la_SOURCES = \
+@@ -908,7 +912,9 @@ libcryptsetup_la_SOURCES = \
+ 	lib/luks2/luks2_token_keyring.c	\
+ 	lib/luks2/luks2_token.c		\
+ 	lib/luks2/luks2_internal.h	\
+-	lib/luks2/luks2.h
++	lib/luks2/luks2.h		\
++	lib/utils_blkid.c		\
++	lib/utils_blkid.h
+ 
+ 
+ # cryptsetup
+@@ -1351,6 +1357,8 @@ lib/luks2/libcryptsetup_la-luks2_token_k
+ 	lib/luks2/$(am__dirstamp) lib/luks2/$(DEPDIR)/$(am__dirstamp)
+ lib/luks2/libcryptsetup_la-luks2_token.lo: lib/luks2/$(am__dirstamp) \
+ 	lib/luks2/$(DEPDIR)/$(am__dirstamp)
++lib/libcryptsetup_la-utils_blkid.lo: lib/$(am__dirstamp) \
++	lib/$(DEPDIR)/$(am__dirstamp)
+ 
+ libcryptsetup.la: $(libcryptsetup_la_OBJECTS) $(libcryptsetup_la_DEPENDENCIES) $(EXTRA_libcryptsetup_la_DEPENDENCIES) 
+ 	$(AM_V_CCLD)$(libcryptsetup_la_LINK) -rpath $(libdir) $(libcryptsetup_la_OBJECTS) $(libcryptsetup_la_LIBADD) $(LIBS)
+@@ -1507,6 +1515,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-setup.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils_benchmark.Plo@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils_blkid.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils_crypt.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils_device.Plo@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/libcryptsetup_la-utils_device_locking.Plo@am__quote@
+@@ -1991,6 +2000,13 @@ lib/luks2/libcryptsetup_la-luks2_token.l
+ @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+ @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcryptsetup_la_CPPFLAGS) $(CPPFLAGS) $(libcryptsetup_la_CFLAGS) $(CFLAGS) -c -o lib/luks2/libcryptsetup_la-luks2_token.lo `test -f 'lib/luks2/luks2_token.c' || echo '$(srcdir)/'`lib/luks2/luks2_token.c
+ 
++lib/libcryptsetup_la-utils_blkid.lo: lib/utils_blkid.c
++@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcryptsetup_la_CPPFLAGS) $(CPPFLAGS) $(libcryptsetup_la_CFLAGS) $(CFLAGS) -MT lib/libcryptsetup_la-utils_blkid.lo -MD -MP -MF lib/$(DEPDIR)/libcryptsetup_la-utils_blkid.Tpo -c -o lib/libcryptsetup_la-utils_blkid.lo `test -f 'lib/utils_blkid.c' || echo '$(srcdir)/'`lib/utils_blkid.c
++@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) lib/$(DEPDIR)/libcryptsetup_la-utils_blkid.Tpo lib/$(DEPDIR)/libcryptsetup_la-utils_blkid.Plo
++@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='lib/utils_blkid.c' object='lib/libcryptsetup_la-utils_blkid.lo' libtool=yes @AMDEPBACKSLASH@
++@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
++@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(libcryptsetup_la_CPPFLAGS) $(CPPFLAGS) $(libcryptsetup_la_CFLAGS) $(CFLAGS) -c -o lib/libcryptsetup_la-utils_blkid.lo `test -f 'lib/utils_blkid.c' || echo '$(srcdir)/'`lib/utils_blkid.c
++
+ python/pycryptsetup_la-pycryptsetup.lo: python/pycryptsetup.c
+ @am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(pycryptsetup_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT python/pycryptsetup_la-pycryptsetup.lo -MD -MP -MF python/$(DEPDIR)/pycryptsetup_la-pycryptsetup.Tpo -c -o python/pycryptsetup_la-pycryptsetup.lo `test -f 'python/pycryptsetup.c' || echo '$(srcdir)/'`python/pycryptsetup.c
+ @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) python/$(DEPDIR)/pycryptsetup_la-pycryptsetup.Tpo python/$(DEPDIR)/pycryptsetup_la-pycryptsetup.Plo
+--- cryptsetup-2.0.3.old/configure	2018-05-03 21:36:55.000000000 +0200
++++ cryptsetup-2.0.3/configure	2018-07-16 09:58:36.283929571 +0200
+@@ -664,6 +664,10 @@ PWQUALITY_STATIC_LIBS
+ systemd_tmpfilesdir
+ DEVMAPPER_STATIC_LIBS
+ DEVMAPPER_STATIC_CFLAGS
++HAVE_BLKID_FALSE
++HAVE_BLKID_TRUE
++BLKID_LIBS
++BLKID_CFLAGS
+ CRYPTO_INTERNAL_ARGON2_FALSE
+ CRYPTO_INTERNAL_ARGON2_TRUE
+ LIBARGON2_LIBS
+@@ -878,6 +882,7 @@ enable_gcrypt_pbkdf2
+ with_libgcrypt_prefix
+ enable_internal_argon2
+ enable_libargon2
++enable_blkid
+ enable_dev_random
+ enable_python
+ with_python_version
+@@ -935,6 +940,8 @@ NSS_CFLAGS
+ NSS_LIBS
+ LIBARGON2_CFLAGS
+ LIBARGON2_LIBS
++BLKID_CFLAGS
++BLKID_LIBS
+ DEVMAPPER_STATIC_CFLAGS
+ DEVMAPPER_STATIC_LIBS
+ systemd_tmpfilesdir
+@@ -1607,6 +1614,8 @@ Optional Features:
+                           disable internal implementation of Argon2 PBKDF
+   --enable-libargon2      enable external libargon2 (PHC) library (disables
+                           internal bundled version)
++  --disable-blkid         disable use of blkid for device signature detection
++                          and wiping.
+   --enable-dev-random     use blocking /dev/random by default for key
+                           generator (otherwise use /dev/urandom)
+   --enable-python         enable Python bindings
+@@ -1719,6 +1728,9 @@ Some influential environment variables:
+               C compiler flags for LIBARGON2, overriding pkg-config
+   LIBARGON2_LIBS
+               linker flags for LIBARGON2, overriding pkg-config
++  BLKID_CFLAGS
++              C compiler flags for BLKID, overriding pkg-config
++  BLKID_LIBS  linker flags for BLKID, overriding pkg-config
+   DEVMAPPER_STATIC_CFLAGS
+               C compiler flags for DEVMAPPER_STATIC, overriding pkg-config
+   DEVMAPPER_STATIC_LIBS
+@@ -18580,6 +18592,211 @@ else
+ fi
+ 
+ 
++# Check whether --enable-blkid was given.
++if test "${enable_blkid+set}" = set; then :
++  enableval=$enable_blkid;
++else
++  enable_blkid=yes
++fi
++
++
++if test x$enable_blkid = xyes ; then
++
++pkg_failed=no
++{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for BLKID" >&5
++$as_echo_n "checking for BLKID... " >&6; }
++
++if test -n "$BLKID_CFLAGS"; then
++    pkg_cv_BLKID_CFLAGS="$BLKID_CFLAGS"
++ elif test -n "$PKG_CONFIG"; then
++    if test -n "$PKG_CONFIG" && \
++    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"blkid\""; } >&5
++  ($PKG_CONFIG --exists --print-errors "blkid") 2>&5
++  ac_status=$?
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; then
++  pkg_cv_BLKID_CFLAGS=`$PKG_CONFIG --cflags "blkid" 2>/dev/null`
++		      test "x$?" != "x0" && pkg_failed=yes
++else
++  pkg_failed=yes
++fi
++ else
++    pkg_failed=untried
++fi
++if test -n "$BLKID_LIBS"; then
++    pkg_cv_BLKID_LIBS="$BLKID_LIBS"
++ elif test -n "$PKG_CONFIG"; then
++    if test -n "$PKG_CONFIG" && \
++    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"blkid\""; } >&5
++  ($PKG_CONFIG --exists --print-errors "blkid") 2>&5
++  ac_status=$?
++  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
++  test $ac_status = 0; }; then
++  pkg_cv_BLKID_LIBS=`$PKG_CONFIG --libs "blkid" 2>/dev/null`
++		      test "x$?" != "x0" && pkg_failed=yes
++else
++  pkg_failed=yes
++fi
++ else
++    pkg_failed=untried
++fi
++
++
++
++if test $pkg_failed = yes; then
++   	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++
++if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
++        _pkg_short_errors_supported=yes
++else
++        _pkg_short_errors_supported=no
++fi
++        if test $_pkg_short_errors_supported = yes; then
++	        BLKID_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "blkid" 2>&1`
++        else
++	        BLKID_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "blkid" 2>&1`
++        fi
++	# Put the nasty error message in config.log where it belongs
++	echo "$BLKID_PKG_ERRORS" >&5
++
++	LIBBLKID_LIBS="-lblkid"
++elif test $pkg_failed = untried; then
++     	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
++$as_echo "no" >&6; }
++	LIBBLKID_LIBS="-lblkid"
++else
++	BLKID_CFLAGS=$pkg_cv_BLKID_CFLAGS
++	BLKID_LIBS=$pkg_cv_BLKID_LIBS
++        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
++$as_echo "yes" >&6; }
++
++$as_echo "#define HAVE_BLKID 1" >>confdefs.h
++
++fi
++
++	for ac_header in blkid/blkid.h
++do :
++  ac_fn_c_check_header_mongrel "$LINENO" "blkid/blkid.h" "ac_cv_header_blkid_blkid_h" "$ac_includes_default"
++if test "x$ac_cv_header_blkid_blkid_h" = xyes; then :
++  cat >>confdefs.h <<_ACEOF
++#define HAVE_BLKID_BLKID_H 1
++_ACEOF
++
++else
++  as_fn_error $? "You need blkid development library installed." "$LINENO" 5
++fi
++
++done
++
++	ac_fn_c_check_decl "$LINENO" "blkid_reset_probe" "ac_cv_have_decl_blkid_reset_probe" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_reset_probe" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_RESET_PROBE $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++ac_fn_c_check_decl "$LINENO" "blkid_probe_set_device" "ac_cv_have_decl_blkid_probe_set_device" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_probe_set_device" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_PROBE_SET_DEVICE $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++ac_fn_c_check_decl "$LINENO" "blkid_probe_filter_superblocks_type" "ac_cv_have_decl_blkid_probe_filter_superblocks_type" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_probe_filter_superblocks_type" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_PROBE_FILTER_SUPERBLOCKS_TYPE $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++ac_fn_c_check_decl "$LINENO" "blkid_do_safeprobe" "ac_cv_have_decl_blkid_do_safeprobe" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_do_safeprobe" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_DO_SAFEPROBE $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++ac_fn_c_check_decl "$LINENO" "blkid_do_probe" "ac_cv_have_decl_blkid_do_probe" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_do_probe" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_DO_PROBE $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++ac_fn_c_check_decl "$LINENO" "blkid_probe_lookup_value
++		       " "ac_cv_have_decl_blkid_probe_lookup_value__________" "#include <blkid/blkid.h>
++"
++if test "x$ac_cv_have_decl_blkid_probe_lookup_value__________" = xyes; then :
++  ac_have_decl=1
++else
++  ac_have_decl=0
++fi
++
++cat >>confdefs.h <<_ACEOF
++#define HAVE_DECL_BLKID_PROBE_LOOKUP_VALUE__________ $ac_have_decl
++_ACEOF
++if test $ac_have_decl = 1; then :
++
++else
++  as_fn_error $? "Can not compile with blkid support, disable it by --disable-blkid." "$LINENO" 5
++fi
++
++fi
++ if test x$enable_blkid = xyes; then
++  HAVE_BLKID_TRUE=
++  HAVE_BLKID_FALSE='#'
++else
++  HAVE_BLKID_TRUE='#'
++  HAVE_BLKID_FALSE=
++fi
++
++
+ if test x$enable_static_cryptsetup = xyes; then
+ 	saved_PKG_CONFIG=$PKG_CONFIG
+ 	PKG_CONFIG="$PKG_CONFIG --static"
+@@ -19043,6 +19260,7 @@ $as_echo "$systemd_tmpfilesdir" >&6; }
+ 
+ 
+ 
++
+ # Check whether --enable-dev-random was given.
+ if test "${enable_dev_random+set}" = set; then :
+   enableval=$enable_dev_random; default_rng=/dev/random
+@@ -20146,6 +20364,10 @@ if test -z "${CRYPTO_INTERNAL_ARGON2_TRU
+   as_fn_error $? "conditional \"CRYPTO_INTERNAL_ARGON2\" was never defined.
+ Usually this means the macro was only invoked conditionally." "$LINENO" 5
+ fi
++if test -z "${HAVE_BLKID_TRUE}" && test -z "${HAVE_BLKID_FALSE}"; then
++  as_fn_error $? "conditional \"HAVE_BLKID\" was never defined.
++Usually this means the macro was only invoked conditionally." "$LINENO" 5
++fi
+ if test -z "${PYTHON_CRYPTSETUP_TRUE}" && test -z "${PYTHON_CRYPTSETUP_FALSE}"; then
+   as_fn_error $? "conditional \"PYTHON_CRYPTSETUP\" was never defined.
+ Usually this means the macro was only invoked conditionally." "$LINENO" 5

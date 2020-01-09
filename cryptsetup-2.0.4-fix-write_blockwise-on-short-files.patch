@@ -1,0 +1,40 @@
+From 63d66e7a3356da4bca77f521fd93df7cdf09b41a Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Tue, 19 Jun 2018 15:10:33 +0200
+Subject: [PATCH 3/4] Fix write_blockwise on short files.
+
+see unit test write_blockwise(length=2097153, bsize=4096), on x86
+with original test file size=2097152.
+
+The test is trying to write_blockwise 1 more byte than actual file
+size.
+---
+ lib/utils_io.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/lib/utils_io.c b/lib/utils_io.c
+index 8336b18..e0c2381 100644
+--- a/lib/utils_io.c
++++ b/lib/utils_io.c
+@@ -105,15 +105,13 @@ ssize_t write_blockwise(int fd, size_t bsize, size_t alignment,
+ 	if (hangover) {
+ 		if (posix_memalign(&hangover_buf, alignment, bsize))
+ 			goto out;
++		memset(hangover_buf, 0, bsize);
+ 
+ 		r = read_buffer(fd, hangover_buf, bsize);
+-		if (r < 0 || r < (ssize_t)hangover)
++		if (r < 0)
+ 			goto out;
+ 
+-		if (r < (ssize_t)bsize)
+-			bsize = r;
+-
+-		if (lseek(fd, -(off_t)bsize, SEEK_CUR) < 0)
++		if (lseek(fd, -(off_t)r, SEEK_CUR) < 0)
+ 			goto out;
+ 
+ 		memcpy(hangover_buf, (char*)buf + solid, hangover);
+-- 
+1.8.3.1
+

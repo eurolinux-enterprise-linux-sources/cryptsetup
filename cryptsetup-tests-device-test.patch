@@ -1,0 +1,17 @@
+diff -rupN cryptsetup-2.0.3.old/tests/device-test cryptsetup-2.0.3/tests/device-test
+--- cryptsetup-2.0.3.old/tests/device-test	2018-06-06 11:00:28.716305843 -0400
++++ cryptsetup-2.0.3/tests/device-test	2018-06-06 11:00:37.036343168 -0400
+@@ -39,11 +39,12 @@ function dm_crypt_features()
+ 
+ 	VER_MAJ=$(echo $VER_STR | cut -f 1 -d.)
+ 	VER_MIN=$(echo $VER_STR | cut -f 2 -d.)
++	VER_PAT=$(echo $VER_STR | cut -f 3 -d.)
+ 
+ 	[ $VER_MAJ -lt 1 ] && return
+ 	[ $VER_MAJ -eq 1 -a $VER_MIN -lt 14 ] && return
+ 	DM_PERF_CPU=1
+-	[ $VER_MAJ -eq 1 -a $VER_MIN -lt 17 ] && return
++	[ $VER_MAJ -eq 1 -a $VER_MIN -lt 15 -a $VER_PAT -lt 5 ] && return
+ 	DM_SECTOR_SIZE=1
+ }
+ 

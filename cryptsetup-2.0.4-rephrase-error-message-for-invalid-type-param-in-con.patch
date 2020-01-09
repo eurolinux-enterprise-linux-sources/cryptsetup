@@ -1,0 +1,25 @@
+From b60e856087db77abbc5aa62a7f980e62b8b75029 Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Tue, 17 Jul 2018 10:53:13 +0200
+Subject: [PATCH] Rephrase error message for invalid --type param in convert.
+
+---
+ src/cryptsetup.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/cryptsetup.c b/src/cryptsetup.c
+index fc3481d..5f8df37 100644
+--- a/src/cryptsetup.c
++++ b/src/cryptsetup.c
+@@ -1851,7 +1851,7 @@ static int action_luksConvert(void)
+ 	} else if (!strcmp(opt_type, "luks1")) {
+ 		to_type = CRYPT_LUKS1;
+ 	} else {
+-		log_err(_("Missing LUKS target type, option --type is required."));
++		log_err(_("Invalid LUKS type, only luks1 and luks2 are supported."));
+ 		return -EINVAL;
+ 	}
+ 
+-- 
+1.8.3.1
+

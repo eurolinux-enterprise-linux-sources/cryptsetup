@@ -1,0 +1,33 @@
+diff --git a/lib/luks2/luks2_keyslot_luks2.c b/lib/luks2/luks2_keyslot_luks2.c
+index 3716c26..540915b 100644
+--- a/lib/luks2/luks2_keyslot_luks2.c
++++ b/lib/luks2/luks2_keyslot_luks2.c
+@@ -350,6 +350,13 @@ static int luks2_keyslot_get_key(struct crypt_device *cd,
+ 		crypt_free_volume_key(derived_key);
+ 		return -ENOMEM;
+ 	}
++
++	if (crypt_fips_mode() &&
++	    (!strcmp(pbkdf.type, CRYPT_KDF_ARGON2I) ||
++	     !strcmp(pbkdf.type, CRYPT_KDF_ARGON2ID)))
++		log_verbose(cd, _("%s key derivation function is not currently FIPS-compliant."),
++			    pbkdf.type);
++
+ 	/*
+ 	 * Calculate derived key, decrypt keyslot content and merge it.
+ 	 */
+@@ -406,6 +413,14 @@ static int luks2_keyslot_update_json(struct crypt_device *cd,
+ 	if (!pbkdf)
+ 		return -EINVAL;
+ 
++	if (crypt_fips_mode() &&
++	    (!strcmp(pbkdf->type, CRYPT_KDF_ARGON2I) ||
++	     !strcmp(pbkdf->type, CRYPT_KDF_ARGON2ID))) {
++		log_err(cd, _("%s key derivation function is not allowed in FIPS mode."),
++			pbkdf->type);
++		return -EINVAL;
++	}
++
+ 	r = crypt_benchmark_pbkdf_internal(cd, CONST_CAST(struct crypt_pbkdf_type *)pbkdf, keyslot_key_len);
+ 	if (r < 0)
+ 		return r;

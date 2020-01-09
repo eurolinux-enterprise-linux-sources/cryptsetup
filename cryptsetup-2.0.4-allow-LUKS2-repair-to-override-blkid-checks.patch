@@ -1,0 +1,131 @@
+From b82eaf14f7a01cfd542cb95fe97b8d3a22d5ba8f Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Thu, 28 Jun 2018 15:48:13 +0200
+Subject: [PATCH 3/6] Allow LUKS2 repair to override blkid checks.
+
+Allow user to run cryptsetup repair command and explicitly do
+repair on corrupted LUKS2 headers where blkid decides it's no longer
+a LUKS2 device.
+---
+ lib/luks2/luks2.h               |  2 +-
+ lib/luks2/luks2_json_metadata.c | 13 +++++++------
+ lib/setup.c                     | 10 +++++-----
+ 3 files changed, 13 insertions(+), 12 deletions(-)
+
+diff --git a/lib/luks2/luks2.h b/lib/luks2/luks2.h
+index ee57b41..c431e8f 100644
+--- a/lib/luks2/luks2.h
++++ b/lib/luks2/luks2.h
+@@ -131,7 +131,7 @@ struct luks2_keyslot_params {
+ int LUKS2_hdr_version_unlocked(struct crypt_device *cd,
+ 	const char *backup_file);
+ 
+-int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr);
++int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr, int repair);
+ int LUKS2_hdr_write(struct crypt_device *cd, struct luks2_hdr *hdr);
+ int LUKS2_hdr_dump(struct crypt_device *cd, struct luks2_hdr *hdr);
+ 
+diff --git a/lib/luks2/luks2_json_metadata.c b/lib/luks2/luks2_json_metadata.c
+index 125cad9..0fd6340 100644
+--- a/lib/luks2/luks2_json_metadata.c
++++ b/lib/luks2/luks2_json_metadata.c
+@@ -842,7 +842,8 @@ int LUKS2_hdr_validate(json_object *hdr_jobj)
+ 	return 0;
+ }
+ 
+-int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr)
++/* FIXME: should we expose do_recovery parameter explicitly? */
++int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr, int repair)
+ {
+ 	int r;
+ 
+@@ -853,7 +854,7 @@ int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr)
+ 		return r;
+ 	}
+ 
+-	r = LUKS2_disk_hdr_read(cd, hdr, crypt_metadata_device(cd), 1, 1);
++	r = LUKS2_disk_hdr_read(cd, hdr, crypt_metadata_device(cd), 1, !repair);
+ 	if (r == -EAGAIN) {
+ 		/* unlikely: auto-recovery is required and failed due to read lock being held */
+ 		device_read_unlock(crypt_metadata_device(cd));
+@@ -865,7 +866,7 @@ int LUKS2_hdr_read(struct crypt_device *cd, struct luks2_hdr *hdr)
+ 			return r;
+ 		}
+ 
+-		r = LUKS2_disk_hdr_read(cd, hdr, crypt_metadata_device(cd), 1, 1);
++		r = LUKS2_disk_hdr_read(cd, hdr, crypt_metadata_device(cd), 1, !repair);
+ 
+ 		device_write_unlock(crypt_metadata_device(cd));
+ 	} else
+@@ -1050,7 +1051,7 @@ int LUKS2_hdr_restore(struct crypt_device *cd, struct luks2_hdr *hdr,
+ 		return r;
+ 	}
+ 
+-	r = LUKS2_disk_hdr_read(cd, &hdr_file, backup_device, 0);
++	r = LUKS2_disk_hdr_read(cd, &hdr_file, backup_device, 0, 0);
+ 	device_read_unlock(backup_device);
+ 	device_free(backup_device);
+ 
+@@ -1089,7 +1090,7 @@ int LUKS2_hdr_restore(struct crypt_device *cd, struct luks2_hdr *hdr,
+ 	close(devfd);
+ 	devfd = -1;
+ 
+-	r = LUKS2_hdr_read(cd, &tmp_hdr);
++	r = LUKS2_hdr_read(cd, &tmp_hdr, 0);
+ 	if (r == 0) {
+ 		log_dbg("Device %s already contains LUKS2 header, checking UUID and requirements.", device_path(device));
+ 		r = LUKS2_config_get_requirements(cd, &tmp_hdr, &reqs);
+@@ -1176,7 +1177,7 @@ out:
+ 
+ 	if (!r) {
+ 		LUKS2_hdr_free(hdr);
+-		r = LUKS2_hdr_read(cd, hdr);
++		r = LUKS2_hdr_read(cd, hdr, 1);
+ 	}
+ 
+ 	return r;
+diff --git a/lib/setup.c b/lib/setup.c
+index fddbe7e..a9b2eba 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -644,16 +644,16 @@ struct crypt_pbkdf_type *crypt_get_pbkdf(struct crypt_device *cd)
+ /*
+  * crypt_load() helpers
+  */
+-static int _crypt_load_luks2(struct crypt_device *cd, int reload)
++static int _crypt_load_luks2(struct crypt_device *cd, int reload, int repair)
+ {
+ 	int r;
+ 	char tmp_cipher[MAX_CIPHER_LEN], tmp_cipher_mode[MAX_CIPHER_LEN],
+ 	     *cipher = NULL, *cipher_mode = NULL, *type = NULL;
+ 	struct luks2_hdr hdr2 = {};
+ 
+-	log_dbg("%soading LUKS2 header.", reload ? "Rel" : "L");
++	log_dbg("%soading LUKS2 header (repair %sabled).", reload ? "Rel" : "L", repair ? "en" : "dis");
+ 
+-	r = LUKS2_hdr_read(cd, &hdr2);
++	r = LUKS2_hdr_read(cd, &hdr2, repair);
+ 	if (r)
+ 		return r;
+ 
+@@ -713,7 +713,7 @@ static void _luks2_reload(struct crypt_device *cd)
+ 	if (!cd || !isLUKS2(cd->type))
+ 		return;
+ 
+-	(void) _crypt_load_luks2(cd, 1);
++	(void) _crypt_load_luks2(cd, 1, 0);
+ }
+ 
+ static int _crypt_load_luks(struct crypt_device *cd, const char *requested_type,
+@@ -768,7 +768,7 @@ static int _crypt_load_luks(struct crypt_device *cd, const char *requested_type,
+ 			return -EINVAL;
+ 		}
+ 
+-		r =  _crypt_load_luks2(cd, cd->type != NULL);
++		r =  _crypt_load_luks2(cd, cd->type != NULL, repair);
+ 	} else
+ 		r = -EINVAL;
+ out:
+-- 
+1.8.3.1
+

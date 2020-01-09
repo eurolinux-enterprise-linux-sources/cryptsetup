@@ -1,7 +1,7 @@
 /*
  * cryptsetup kernel RNG access functions
  *
- * Copyright (C) 2010-2017, Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2018, Red Hat, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -167,13 +167,13 @@ int crypt_random_init(struct crypt_device *ctx)
 		goto fail;
 
 	if (crypt_fips_mode())
-		log_verbose(ctx, _("Running in FIPS mode.\n"));
+		log_verbose(ctx, _("Running in FIPS mode."));
 
 	random_initialised = 1;
 	return 0;
 fail:
 	crypt_random_exit();
-	log_err(ctx, _("Fatal error during RNG initialisation.\n"));
+	log_err(ctx, _("Fatal error during RNG initialisation."));
 	return -ENOSYS;
 }
 
@@ -210,13 +210,12 @@ int crypt_random_get(struct crypt_device *ctx, char *buf, size_t len, int qualit
 		}
 		break;
 	default:
-		log_err(ctx, _("Unknown RNG quality requested.\n"));
+		log_err(ctx, _("Unknown RNG quality requested."));
 		return -EINVAL;
 	}
 
 	if (status)
-		log_err(ctx, _("Error %d reading from RNG: %s\n"),
-			errno, strerror(errno));
+		log_err(ctx, _("Error reading from RNG."));
 
 	return status;
 }

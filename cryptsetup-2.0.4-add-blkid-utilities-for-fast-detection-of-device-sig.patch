@@ -1,0 +1,306 @@
+From 12d00da84239c3dcc4560dc60a0c36d534908cc0 Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Wed, 4 Jul 2018 15:39:11 +0200
+Subject: [PATCH 1/6] Add blkid utilities for fast detection of device
+ signatures.
+
+---
+ configure.ac      |  21 ++++++++
+ lib/Makemodule.am |   5 +-
+ lib/utils_blkid.c | 158 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ lib/utils_blkid.h |  48 +++++++++++++++++
+ 4 files changed, 231 insertions(+), 1 deletion(-)
+ create mode 100644 lib/utils_blkid.c
+ create mode 100644 lib/utils_blkid.h
+
+diff --git a/configure.ac b/configure.ac
+index 05da6d6..31508d0 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -415,6 +415,26 @@ if test x$enable_internal_argon2 = xyes ; then
+ fi
+ AM_CONDITIONAL(CRYPTO_INTERNAL_ARGON2, test x$enable_internal_argon2 = xyes)
+ 
++dnl Link with blkid to check for other device types
++AC_ARG_ENABLE(blkid, AS_HELP_STRING([--disable-blkid],
++	[disable use of blkid for device signature detection and wiping.]), [], [enable_blkid=yes])
++
++if test x$enable_blkid = xyes ; then
++	PKG_CHECK_MODULES([BLKID], [blkid],[AC_DEFINE([HAVE_BLKID], 1, [Define to 1 to use blkid for detection of disk signatures.])],[LIBBLKID_LIBS="-lblkid"])
++
++	AC_CHECK_HEADERS(blkid/blkid.h,,[AC_MSG_ERROR([You need blkid development library installed.])])
++	AC_CHECK_DECLS([ blkid_reset_probe,
++			 blkid_probe_set_device,
++			 blkid_probe_filter_superblocks_type,
++			 blkid_do_safeprobe,
++			 blkid_do_probe,
++			 blkid_probe_lookup_value
++		       ],,
++		       [AC_MSG_ERROR([Can not compile with blkid support, disable it by --disable-blkid.])],
++		       [#include <blkid/blkid.h>])
++fi
++AM_CONDITIONAL(HAVE_BLKID, test x$enable_blkid = xyes)
++
+ dnl Magic for cryptsetup.static build.
+ if test x$enable_static_cryptsetup = xyes; then
+ 	saved_PKG_CONFIG=$PKG_CONFIG
+@@ -465,6 +485,7 @@ AC_SUBST([CRYPTO_STATIC_LIBS])
+ 
+ AC_SUBST([JSON_C_LIBS])
+ AC_SUBST([LIBARGON2_LIBS])
++AC_SUBST([BLKID_LIBS])
+ 
+ AC_SUBST([LIBCRYPTSETUP_VERSION])
+ AC_SUBST([LIBCRYPTSETUP_VERSION_INFO])
+diff --git a/lib/Makemodule.am b/lib/Makemodule.am
+index 5e20039..26178b8 100644
+--- a/lib/Makemodule.am
++++ b/lib/Makemodule.am
+@@ -30,6 +30,7 @@ libcryptsetup_la_LIBADD = \
+ 	@CRYPTO_LIBS@		\
+ 	@LIBARGON2_LIBS@	\
+ 	@JSON_C_LIBS@		\
++	@BLKID_LIBS@		\
+ 	libcrypto_backend.la
+ 
+ libcryptsetup_la_SOURCES = \
+@@ -92,4 +93,6 @@ libcryptsetup_la_SOURCES = \
+ 	lib/luks2/luks2_token_keyring.c	\
+ 	lib/luks2/luks2_token.c		\
+ 	lib/luks2/luks2_internal.h	\
+-	lib/luks2/luks2.h
++	lib/luks2/luks2.h		\
++	lib/utils_blkid.c		\
++	lib/utils_blkid.h
+diff --git a/lib/utils_blkid.c b/lib/utils_blkid.c
+new file mode 100644
+index 0000000..7425bc5
+--- /dev/null
++++ b/lib/utils_blkid.c
+@@ -0,0 +1,158 @@
++/*
++ * blkid probe utilities
++ *
++ * Copyright (C) 2018, Red Hat, Inc. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "utils_blkid.h"
++
++#ifdef HAVE_BLKID
++#include <blkid/blkid.h>
++struct blkid_handle {
++	int fd;
++	blkid_probe pr;
++};
++#endif
++
++void blk_set_chains_for_fast_detection(struct blkid_handle *h)
++{
++#ifdef HAVE_BLKID
++	blkid_probe_enable_partitions(h->pr, 1);
++	blkid_probe_set_partitions_flags(h->pr, 0);
++
++	blkid_probe_enable_superblocks(h->pr, 1);
++	blkid_probe_set_superblocks_flags(h->pr, BLKID_SUBLKS_TYPE);
++#endif
++}
++
++int blk_init_by_path(struct blkid_handle **h, const char *path)
++{
++	int r = -ENOTSUP;
++#ifdef HAVE_BLKID
++	struct blkid_handle *tmp = malloc(sizeof(*tmp));
++	if (!tmp)
++		return -ENOMEM;
++
++	tmp->fd = -1;
++
++	tmp->pr = blkid_new_probe_from_filename(path);
++	if (!tmp->pr) {
++		free(tmp);
++		return -EINVAL;
++	}
++
++	*h = tmp;
++
++	r = 0;
++#endif
++	return r;
++}
++
++int blk_superblocks_filter_luks(struct blkid_handle *h)
++{
++	int r = -ENOTSUP;
++#ifdef HAVE_BLKID
++	char *luks_filter[] = {
++		"crypto_LUKS",
++		NULL
++	};
++	r = blkid_probe_filter_superblocks_type(h->pr, BLKID_FLTR_NOTIN, luks_filter);
++#endif
++	return r;
++}
++
++blk_probe_status blk_safeprobe(struct blkid_handle *h)
++{
++	int r = -1;
++#ifdef HAVE_BLKID
++	r = blkid_do_safeprobe(h->pr);
++#endif
++	switch (r) {
++	case -2:
++		return PRB_AMBIGUOUS;
++	case 1:
++		return PRB_EMPTY;
++	case 0:
++		return PRB_OK;
++	default:
++		return PRB_FAIL;
++	}
++}
++
++int blk_is_partition(struct blkid_handle *h)
++{
++	int r = 0;
++#ifdef HAVE_BLKID
++	r = blkid_probe_has_value(h->pr, "PTTYPE");
++#endif
++	return r;
++}
++
++int blk_is_superblock(struct blkid_handle *h)
++{
++	int r = 0;
++#ifdef HAVE_BLKID
++	r = blkid_probe_has_value(h->pr, "TYPE");
++#endif
++	return r;
++}
++
++const char *blk_get_partition_type(struct blkid_handle *h)
++{
++	const char *value = NULL;
++#ifdef HAVE_BLKID
++	(void) blkid_probe_lookup_value(h->pr, "PTTYPE", &value, NULL);
++#endif
++	return value;
++}
++
++const char *blk_get_superblock_type(struct blkid_handle *h)
++{
++	const char *value = NULL;
++#ifdef HAVE_BLKID
++	(void) blkid_probe_lookup_value(h->pr, "TYPE", &value, NULL);
++#endif
++	return value;
++}
++
++void blk_free(struct blkid_handle *h)
++{
++#ifdef HAVE_BLKID
++	if (!h)
++		return;
++
++	if (h->pr)
++		blkid_free_probe(h->pr);
++
++	free(h);
++#endif
++}
++
++int blk_supported(void)
++{
++	int r = 0;
++#ifdef HAVE_BLKID
++	r = 1;
++#endif
++	return r;
++}
+diff --git a/lib/utils_blkid.h b/lib/utils_blkid.h
+new file mode 100644
+index 0000000..d18b0a0
+--- /dev/null
++++ b/lib/utils_blkid.h
+@@ -0,0 +1,48 @@
++/*
++ * blkid probe utilities
++ *
++ * Copyright (C) 2018, Red Hat, Inc. All rights reserved.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++#ifndef _UTILS_BLKID_H
++#define _UTILS_BLKID_H
++
++struct blkid_handle;
++
++typedef enum { PRB_OK = 0, PRB_EMPTY, PRB_AMBIGUOUS, PRB_FAIL } blk_probe_status;
++
++int blk_init_by_path(struct blkid_handle **h, const char *path);
++
++void blk_free(struct blkid_handle *h);
++
++void blk_set_chains_for_fast_detection(struct blkid_handle *h);
++
++int blk_superblocks_filter_luks(struct blkid_handle *h);
++
++blk_probe_status blk_safeprobe(struct blkid_handle *h);
++
++int blk_is_partition(struct blkid_handle *h);
++
++int blk_is_superblock(struct blkid_handle *h);
++
++const char *blk_get_partition_type(struct blkid_handle *h);
++
++const char *blk_get_superblock_type(struct blkid_handle *h);
++
++int blk_supported(void);
++
++#endif
+-- 
+1.8.3.1
+
+--- cryptsetup-2.0.3.old/aclocal.m4	2018-05-03 21:36:53.000000000 +0200
++++ cryptsetup-2.0.3/aclocal.m4	2018-07-16 15:37:34.935817650 +0200
+@@ -31,7 +31,7 @@ To do so, use the procedure documented b
+ # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
+ # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ #
+-# Last-changed: 2014-10-02
++# Last-changed: 2018-07-16
+ 
+ 
+ dnl AM_PATH_LIBGCRYPT([MINIMUM-VERSION,

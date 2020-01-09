@@ -1,8 +1,8 @@
 /*
  * Linux kernel userspace API crypto backend implementation
  *
- * Copyright (C) 2010-2017, Red Hat, Inc. All rights reserved.
- * Copyright (C) 2010-2017, Milan Broz
+ * Copyright (C) 2010-2018, Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2018, Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,7 @@
 #endif
 
 static int crypto_backend_initialised = 0;
-static char version[64];
+static char version[256];
 
 struct hash_alg {
 	const char *name;
@@ -124,6 +124,11 @@ int crypt_backend_init(struct crypt_device *ctx)
 
 	crypto_backend_initialised = 1;
 	return 0;
+}
+
+void crypt_backend_destroy(void)
+{
+	crypto_backend_initialised = 0;
 }
 
 uint32_t crypt_backend_flags(void)
@@ -212,7 +217,7 @@ int crypt_hash_final(struct crypt_hash *ctx, char *buffer, size_t length)
 	return 0;
 }
 
-int crypt_hash_destroy(struct crypt_hash *ctx)
+void crypt_hash_destroy(struct crypt_hash *ctx)
 {
 	if (ctx->tfmfd >= 0)
 		close(ctx->tfmfd);
@@ -220,7 +225,6 @@ int crypt_hash_destroy(struct crypt_hash *ctx)
 		close(ctx->opfd);
 	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
-	return 0;
 }
 
 /* HMAC */
@@ -230,7 +234,7 @@ int crypt_hmac_size(const char *name)
 }
 
 int crypt_hmac_init(struct crypt_hmac **ctx, const char *name,
-		    const void *buffer, size_t length)
+		    const void *key, size_t key_length)
 {
 	struct crypt_hmac *h;
 	struct hash_alg *ha;
@@ -253,7 +257,7 @@ int crypt_hmac_init(struct crypt_hmac **ctx, const char *name,
 	snprintf((char *)sa.salg_name, sizeof(sa.salg_name),
 		 "hmac(%s)", ha->kernel_name);
 
-	if (crypt_kernel_socket_init(&sa, &h->tfmfd, &h->opfd, buffer, length) < 0) {
+	if (crypt_kernel_socket_init(&sa, &h->tfmfd, &h->opfd, key, key_length) < 0) {
 		free(h);
 		return -EINVAL;
 	}
@@ -287,7 +291,7 @@ int crypt_hmac_final(struct crypt_hmac *ctx, char *buffer, size_t length)
 	return 0;
 }
 
-int crypt_hmac_destroy(struct crypt_hmac *ctx)
+void crypt_hmac_destroy(struct crypt_hmac *ctx)
 {
 	if (ctx->tfmfd >= 0)
 		close(ctx->tfmfd);
@@ -295,7 +299,6 @@ int crypt_hmac_destroy(struct crypt_hmac *ctx)
 		close(ctx->opfd);
 	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
-	return 0;
 }
 
 /* RNG - N/A */
@@ -309,13 +312,24 @@ int crypt_pbkdf(const char *kdf, const char *hash,
 		const char *password, size_t password_length,
 		const char *salt, size_t salt_length,
 		char *key, size_t key_length,
-		unsigned int iterations)
+		uint32_t iterations, uint32_t memory, uint32_t parallel)
 {
-	struct hash_alg *ha = _get_alg(hash);
+	struct hash_alg *ha;
 
-	if (!ha || !kdf || strncmp(kdf, "pbkdf2", 6))
+	if (!kdf)
 		return -EINVAL;
 
-	return pkcs5_pbkdf2(hash, password, password_length, salt, salt_length,
-			    iterations, key_length, key, ha->block_length);
+	if (!strcmp(kdf, "pbkdf2")) {
+		ha = _get_alg(hash);
+		if (!ha)
+			return -EINVAL;
+
+		return pkcs5_pbkdf2(hash, password, password_length, salt, salt_length,
+				    iterations, key_length, key, ha->block_length);
+	} else if (!strncmp(kdf, "argon2", 6)) {
+		return argon2(kdf, password, password_length, salt, salt_length,
+			      key, key_length, iterations, memory, parallel);
+	}
+
+	return -EINVAL;
 }

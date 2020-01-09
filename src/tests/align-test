@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CRYPTSETUP="../src/cryptsetup"
+CRYPTSETUP="../cryptsetup"
 DEV=""
 DEV_STACKED="luks0xbabe"
 MNT_DIR="./mnt_luks"
@@ -38,7 +38,7 @@ add_device() {
 	modprobe scsi_debug $@
 	if [ $? -ne 0 ] ; then
 		echo "This kernel seems to not support proper scsi_debug module, test skipped."
-		exit 0
+		exit 77
 	fi
 
 	sleep 2
@@ -47,7 +47,7 @@ add_device() {
 	if [ ! -e /sys/block/$DEV/alignment_offset ] ; then
 		echo "This kernel seems to not support topology info, test skipped."
 		cleanup
-		exit 0
+		exit 77
 	fi
 
 	DEV="/dev/$DEV"
@@ -58,10 +58,10 @@ format() # key_bits expected [forced]
 {
 	if [ -z "$3" ] ; then
 		echo -n "Formatting using topology info ($1 bits key)..."
-		echo $PWD1 | $CRYPTSETUP luksFormat $DEV -q -i1 -c aes-cbc-essiv:sha256 -s $1
+		echo $PWD1 | $CRYPTSETUP luksFormat --type luks1 $DEV -q -i1 -c aes-cbc-essiv:sha256 -s $1
 	else
 		echo -n "Formatting using forced sector alignment $3 ($1 bits key)..."
-		echo $PWD1 | $CRYPTSETUP luksFormat $DEV -q -i1 -s $1 -c aes-cbc-essiv:sha256 --align-payload=$2
+		echo $PWD1 | $CRYPTSETUP luksFormat --type luks1 $DEV -q -i1 -s $1 -c aes-cbc-essiv:sha256 --align-payload=$2
 	fi
 
 	ALIGN=$($CRYPTSETUP luksDump $DEV |grep "Payload offset" | sed -e s/.*\\t//)
@@ -89,10 +89,10 @@ format_null()
 {
 	if [ $3 -eq 0 ] ; then
 		echo -n "Formatting using topology info ($1 bits key) [slot 0"
-		echo | $CRYPTSETUP luksFormat $DEV -q -i1 -c null -s $1
+		echo | $CRYPTSETUP luksFormat --type luks1 $DEV -q -i1 -c null -s $1
 	else
 		echo -n "Formatting using forced sector alignment $3 ($1 bits key) [slot 0"
-		echo | $CRYPTSETUP luksFormat $DEV -q -i1 -c null -s $1 --align-payload=$3
+		echo | $CRYPTSETUP luksFormat --type luks1 $DEV -q -i1 -c null -s $1 --align-payload=$3
 	fi
 
 	POFF=$(get_offsets "Payload offset")
@@ -115,7 +115,7 @@ format_null()
 
 if [ $(id -u) != 0 ]; then
 	echo "WARNING: You must be root to run this test, test skipped."
-	exit 0
+	exit 77
 fi
 
 modprobe --dry-run scsi_debug || exit 0
@@ -124,6 +124,17 @@ cleanup
 echo "# Create desktop-class 4K drive"
 echo "# (logical_block_size=512, physical_block_size=4096, alignment_offset=0)"
 add_device dev_size_mb=16 sector_size=512 physblk_exp=3 num_tgts=1
+format 256 4096
+format 256 2112 8
+format 128 2048
+format 128 1088 8
+format 256 8192 8192
+format 128 8192 8192
+cleanup
+
+echo "# Create desktop-class 4K drive with misaligned opt-io (some bad USB enclosures)"
+echo "# (logical_block_size=512, physical_block_size=4096, alignment_offset=0, opt-io=1025)"
+add_device dev_size_mb=16 sector_size=512 physblk_exp=3 num_tgts=1 opt_blks=1025
 format 256 4096
 format 256 2112 8
 format 128 2048
@@ -215,14 +226,14 @@ cleanup
 echo "# Create enterprise-class 4K drive with fs and LUKS images."
 # loop device here presents 512 block but images have 4k block
 # cryptsetup should properly use 4k block on direct-io
-add_device dev_size_mb=16 sector_size=4096 physblk_exp=0 num_tgts=1 opt_blks=64
+add_device dev_size_mb=32 sector_size=4096 physblk_exp=0 num_tgts=1 opt_blks=64
 for file in $(ls img_fs_*.img.bz2) ; do
     echo "Format using fs image $file."
     bzip2 -d -c $file | dd of=$DEV bs=1M 2>/dev/null || fail "bad image"
     [ ! -d $MNT_DIR ] && mkdir $MNT_DIR
     mount $DEV $MNT_DIR || skip "Mounting image is not available."
-    echo $PWD1 | $CRYPTSETUP luksFormat -i 1 $MNT_DIR/luks.img || fail
-    echo $PWD2 | $CRYPTSETUP luksFormat -i 1 $MNT_DIR/luks.img --header $MNT_DIR/luks_header.img || fail
+    echo $PWD1 | $CRYPTSETUP luksFormat --type luks1 -i 1 $MNT_DIR/luks.img || fail
+    echo $PWD2 | $CRYPTSETUP luksFormat --type luks1 -i 1 $MNT_DIR/luks.img --header $MNT_DIR/luks_header.img || fail
     umount $MNT_DIR
 done
 cleanup

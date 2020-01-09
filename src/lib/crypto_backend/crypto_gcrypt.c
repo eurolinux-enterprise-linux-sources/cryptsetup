@@ -1,8 +1,8 @@
 /*
  * GCRYPT crypto backend implementation
  *
- * Copyright (C) 2010-2017, Red Hat, Inc. All rights reserved.
- * Copyright (C) 2010-2017, Milan Broz
+ * Copyright (C) 2010-2018, Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2018, Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -121,6 +121,14 @@ int crypt_backend_init(struct crypt_device *ctx)
 	return 0;
 }
 
+void crypt_backend_destroy(void)
+{
+	if (crypto_backend_initialised)
+		gcry_control(GCRYCTL_TERM_SECMEM);
+
+	crypto_backend_initialised = 0;
+}
+
 const char *crypt_backend_version(void)
 {
 	return crypto_backend_initialised ? version : "";
@@ -217,12 +225,11 @@ int crypt_hash_final(struct crypt_hash *ctx, char *buffer, size_t length)
 	return 0;
 }
 
-int crypt_hash_destroy(struct crypt_hash *ctx)
+void crypt_hash_destroy(struct crypt_hash *ctx)
 {
 	gcry_md_close(ctx->hd);
 	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
-	return 0;
 }
 
 /* HMAC */
@@ -232,7 +239,7 @@ int crypt_hmac_size(const char *name)
 }
 
 int crypt_hmac_init(struct crypt_hmac **ctx, const char *name,
-		    const void *buffer, size_t length)
+		    const void *key, size_t key_length)
 {
 	struct crypt_hmac *h;
 	unsigned int flags = GCRY_MD_FLAG_HMAC;
@@ -254,7 +261,7 @@ int crypt_hmac_init(struct crypt_hmac **ctx, const char *name,
 		return -EINVAL;
 	}
 
-	if (gcry_md_setkey(h->hd, buffer, length)) {
+	if (gcry_md_setkey(h->hd, key, key_length)) {
 		gcry_md_close(h->hd);
 		free(h);
 		return -EINVAL;
@@ -293,12 +300,11 @@ int crypt_hmac_final(struct crypt_hmac *ctx, char *buffer, size_t length)
 	return 0;
 }
 
-int crypt_hmac_destroy(struct crypt_hmac *ctx)
+void crypt_hmac_destroy(struct crypt_hmac *ctx)
 {
 	gcry_md_close(ctx->hd);
 	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
-	return 0;
 }
 
 /* RNG */
@@ -317,38 +323,46 @@ int crypt_backend_rng(char *buffer, size_t length, int quality, int fips)
 	return 0;
 }
 
-/* PBKDF */
-int crypt_pbkdf(const char *kdf, const char *hash,
-		const char *password, size_t password_length,
-		const char *salt, size_t salt_length,
-		char *key, size_t key_length,
-		unsigned int iterations)
+static int pbkdf2(const char *hash,
+		  const char *password, size_t password_length,
+		  const char *salt, size_t salt_length,
+		  char *key, size_t key_length,
+		  uint32_t iterations)
 {
 	const char *hash_name = crypt_hash_compat_name(hash, NULL);
 
 #if USE_INTERNAL_PBKDF2
-	if (!kdf || strncmp(kdf, "pbkdf2", 6))
-		return -EINVAL;
-
 	return pkcs5_pbkdf2(hash_name, password, password_length, salt, salt_length,
 			    iterations, key_length, key, 0);
-
 #else /* USE_INTERNAL_PBKDF2 */
 	int hash_id = gcry_md_map_name(hash_name);
-	int kdf_id;
 
 	if (!hash_id)
 		return -EINVAL;
 
-	if (kdf && !strncmp(kdf, "pbkdf2", 6))
-		kdf_id = GCRY_KDF_PBKDF2;
-	else
-		return -EINVAL;
-
-	if (gcry_kdf_derive(password, password_length, kdf_id, hash_id,
+	if (gcry_kdf_derive(password, password_length, GCRY_KDF_PBKDF2, hash_id,
 	    salt, salt_length, iterations, key_length, key))
 		return -EINVAL;
 
 	return 0;
 #endif /* USE_INTERNAL_PBKDF2 */
+}
+
+/* PBKDF */
+int crypt_pbkdf(const char *kdf, const char *hash,
+		const char *password, size_t password_length,
+		const char *salt, size_t salt_length,
+		char *key, size_t key_length,
+		uint32_t iterations, uint32_t memory, uint32_t parallel)
+{
+	if (!kdf)
+		return -EINVAL;
+
+	if (!strcmp(kdf, "pbkdf2"))
+		return pbkdf2(hash, password, password_length, salt, salt_length,
+			      key, key_length, iterations);
+	else if (!strncmp(kdf, "argon2", 6))
+		return argon2(kdf, password, password_length, salt, salt_length,
+			      key, key_length, iterations, memory, parallel);
+	return -EINVAL;
 }

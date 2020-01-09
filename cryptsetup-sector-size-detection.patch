@@ -1,0 +1,13 @@
+--- cryptsetup-2.0.3.old/lib/libdevmapper.c	2018-05-03 18:30:59.000000000 +0200
++++ cryptsetup-2.0.3/lib/libdevmapper.c	2018-06-19 20:01:10.263369754 +0200
+@@ -164,6 +164,10 @@ static void _dm_set_crypt_compat(unsigne
+ 		_dm_flags |= DM_CAPI_STRING_SUPPORTED;
+ 	}
+ 
++	if (!_dm_satisfies_version(1, 15, 0, crypt_maj, crypt_min, crypt_patch) &&
++	     _dm_satisfies_version(1, 14, 5, crypt_maj, crypt_min, crypt_patch))
++		_dm_flags |= DM_SECTOR_SIZE_SUPPORTED;
++
+ 	_dm_crypt_checked = true;
+ }
+ 

@@ -2,7 +2,7 @@
  * cryptsetup volume key implementation
  *
  * Copyright (C) 2004-2006, Clemens Fruhwirth <clemens@endorphin.org>
- * Copyright (C) 2010-2017, Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2018, Red Hat, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "internal.h"
 
@@ -36,6 +37,7 @@ struct volume_key *crypt_alloc_volume_key(size_t keylength, const char *key)
 	if (!vk)
 		return NULL;
 
+	vk->key_description = NULL;
 	vk->keylength = keylength;
 
 	/* keylength 0 is valid => no key */
@@ -49,11 +51,25 @@ struct volume_key *crypt_alloc_volume_key(size_t keylength, const char *key)
 	return vk;
 }
 
+int crypt_volume_key_set_description(struct volume_key *vk, const char *key_description)
+{
+	if (!vk)
+		return -EINVAL;
+
+	free(CONST_CAST(void*)vk->key_description);
+	vk->key_description = NULL;
+	if (key_description && !(vk->key_description = strdup(key_description)))
+		return -ENOMEM;
+
+	return 0;
+}
+
 void crypt_free_volume_key(struct volume_key *vk)
 {
 	if (vk) {
 		crypt_memzero(vk->key, vk->keylength);
 		vk->keylength = 0;
+		free(CONST_CAST(void*)vk->key_description);
 		free(vk);
 	}
 }
