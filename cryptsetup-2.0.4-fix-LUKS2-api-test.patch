@@ -1,0 +1,14 @@
+diff -rupN cryptsetup-2.0.3.old/tests/api-test-2.c cryptsetup-2.0.3/tests/api-test-2.c
+--- cryptsetup-2.0.3.old/tests/api-test-2.c	2019-03-27 21:31:18.684160803 +0100
++++ cryptsetup-2.0.3/tests/api-test-2.c	2019-03-27 21:32:14.762630391 +0100
+@@ -2514,8 +2514,8 @@ static void Luks2Requirements(void)
+ 	FAIL_((r = crypt_set_label(cd, "label", "subsystem")), "Unmet requirements detected");
+ 	EQ_(r, -ETXTBSY);
+ 
+-	/* crypt_repair (not implemented for luks2) */
+-	FAIL_(crypt_repair(cd, CRYPT_LUKS2, NULL), "Not implemented");
++	/* crypt_repair (with current repair capabilities it's unrestricted) */
++	OK_(crypt_repair(cd, CRYPT_LUKS2, NULL));
+ 
+ 	/* crypt_keyslot_add_passphrase (restricted) */
+ 	FAIL_((r = crypt_keyslot_add_by_passphrase(cd, CRYPT_ANY_SLOT, "aaa", 3, "bbb", 3)), "Unmet requirements detected");

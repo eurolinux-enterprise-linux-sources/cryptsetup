@@ -30,7 +30,7 @@ Obsoletes: python2-cryptsetup
 Summary: A utility for setting up encrypted disks
 Name: cryptsetup
 Version: 2.0.3
-Release: 3%{?dist}
+Release: 5%{?dist}
 License: GPLv2+ and LGPLv2+
 Group: Applications/System
 URL: https://gitlab.com/cryptsetup/cryptsetup
@@ -57,6 +57,10 @@ Requires: libpwquality >= 1.2.0
 %define upstream_version_old 1.7.4
 Source0: https://www.kernel.org/pub/linux/utils/cryptsetup/v2.0/cryptsetup-%{upstream_version}.tar.xz
 Source1: https://www.kernel.org/pub/linux/utils/cryptsetup/v1.7/cryptsetup-%{upstream_version_old}.tar.xz
+# contains test images only, original commit id 5a7535c
+Source2: luks2_mda_images.tar.xz
+# contains test images only, original commit id 177cb8b
+Source3: luks2_valid_hdr.tar.xz
 # version 1.7.4 only (all of it, up to next comment)
 Patch0: %{name}-avoid-rh-kernel-bug.patch
 Patch1: %{name}-1.7.5-fix-unaligned-access-to-hidden-truecrypt.patch
@@ -82,6 +86,18 @@ Patch18: %{name}-2.0.4-allow-LUKS2-repair-with-disabled-locks.patch
 Patch19: %{name}-2.0.4-configure.patch
 Patch20: %{name}-2.0.4-update-cryptsetup-man-page-for-type-option-usage.patch
 Patch21: %{name}-2.0.4-rephrase-error-message-for-invalid-type-param-in-con.patch
+Patch22: %{name}-2.0.4-fix-LUKS2-api-test.patch
+Patch23: %{name}-2.0.5-fix-miscalculation-of-device-alignment-offset.patch
+Patch24: %{name}-2.0.5-remove-useless-division-followed-by-multiplication-b.patch
+Patch25: %{name}-2.0.6-LUKS2-metadata-variation-fixes.patch
+Patch26: %{name}-2.0.6-enable-all-supported-metadata-sizes-in-LUKS2-validat.patch
+Patch27: %{name}-2.0.6-check-json-size-matches-value-from-binary-LUKS2-head.patch
+Patch28: %{name}-2.0.6-test-cryptsetup-can-handle-all-LUKS2-metadata-varian.patch
+Patch29: %{name}-2.0.6-do-not-validate-keyslot-areas-so-frantically.patch
+Patch30: %{name}-2.0.6-reshuffle-config-and-keyslots-areas-validation-code.patch
+Patch31: %{name}-2.0.6-fix-keyslot-areas-validation.patch
+# keep validation tests up to date
+Patch32: %{name}-2.1.0-sync-LUKS2-validation-tests.patch
 
 %if 0%{?fedora} >= 19 || 0%{?rhel} >= 7
 %define configure_cipher --enable-gcrypt-pbkdf2
@@ -192,10 +208,24 @@ for setting up disk encryption using dm-crypt kernel module.
 %patch18 -p1
 %patch20 -p1
 %patch21 -p1
+%patch22 -p1
+%patch23 -p1
+%patch24 -p1
+%patch25 -p1
+%patch26 -p1
+%patch27 -p1
+%patch28 -p1
+%patch29 -p1
+%patch30 -p1
+%patch31 -p1
+%patch32 -p1
 # the configure patch (always last)
 %patch19 -p1
 chmod -x python/pycryptsetup-test.py
 chmod -x misc/dracut_90reencrypt/*
+chmod +x tests/generators/generate-*.sh
+%setup -T -a 2 -D -n cryptsetup-%{upstream_version}/tests
+%setup -T -a 3 -D -n cryptsetup-%{upstream_version}/tests
 
 %if %{python3_enable}
 # copy the whole directory for the python3 build
@@ -319,6 +349,17 @@ install -m755 misc/dracut_90reencrypt/reencrypt-verbose.sh %{buildroot}/%{dracut
 %clean
 
 %changelog
+* Wed Apr 03 2019 Ondrej Kozina <okozina@redhat.com> - 2.0.3-5
+- patch: calculate alignment offset correctly for LUKS2 devices.
+- patch: fix memory leak in LUKS2 validation.
+- Resolves: #1613953 #1693592
+
+* Wed Mar 27 2019 Ondrej Kozina <okozina@redhat.com> - 2.0.3-4
+- patch: Fix broken LUKS2 api test.
+- patch: Allow cryptsetup to process all LUKS2 metadata variants
+  according to LUKS2 specifiation.
+- Resolves: #1653388
+
 * Tue Jul 31 2018 Ondrej Kozina <okozina@redhat.com> - 2.0.3-3
 - Add expected permissions explicitly for locking directory.
 - Reinstate sed script removing library rpath from libtool

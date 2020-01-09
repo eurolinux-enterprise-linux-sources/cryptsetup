@@ -1,0 +1,28 @@
+From dd36d56d472e1ea1db74d64d2e6a8d8ece2e7a76 Mon Sep 17 00:00:00 2001
+From: Ondrej Kozina <okozina@redhat.com>
+Date: Thu, 9 Aug 2018 10:26:38 +0200
+Subject: [PATCH] Fix miscalculation of device alignment offset.
+
+device_topology_alignment routine already returns alignment offset
+in bytes. There's no need to divide it by sector size, since LUKS2
+format have all offsets and sizes stored in bytes.
+---
+ lib/setup.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/setup.c b/lib/setup.c
+index ff944c9..1a78d2e 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -1602,7 +1602,7 @@ static int _crypt_format_luks2(struct crypt_device *cd,
+ 			       integrity, uuid,
+ 			       sector_size,
+ 			       required_alignment / sector_size,
+-			       alignment_offset / sector_size,
++			       alignment_offset,
+ 			       cd->metadata_device ? 1 : 0);
+ 	if (r < 0)
+ 		goto out;
+-- 
+1.8.3.1
+

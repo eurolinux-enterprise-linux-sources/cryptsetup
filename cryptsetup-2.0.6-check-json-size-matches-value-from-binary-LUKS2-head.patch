@@ -1,0 +1,139 @@
+diff -rupN cryptsetup-2.0.3.old/lib/luks2/luks2_disk_metadata.c cryptsetup-2.0.3/lib/luks2/luks2_disk_metadata.c
+--- cryptsetup-2.0.3.old/lib/luks2/luks2_disk_metadata.c	2019-03-27 21:06:52.048172644 +0100
++++ cryptsetup-2.0.3/lib/luks2/luks2_disk_metadata.c	2019-03-27 21:07:12.068978543 +0100
+@@ -204,6 +204,12 @@ static int hdr_disk_sanity_check_pre(str
+ 		return -EINVAL;
+ 	}
+ 
++	if (secondary && (offset != be64_to_cpu(hdr->hdr_size))) {
++		log_dbg("LUKS2 offset 0x%04x in secondary header doesn't match size 0x%04x.",
++			(unsigned)offset, (unsigned)be64_to_cpu(hdr->hdr_size));
++		return -EINVAL;
++	}
++
+ 	/* FIXME: sanity check checksum alg. */
+ 
+ 	log_dbg("LUKS2 header version %u of size %u bytes, checksum %s.",
+@@ -476,7 +482,7 @@ static int validate_json_area(const char
+ 	return 0;
+ }
+ 
+-static int validate_luks2_json_object(json_object *jobj_hdr)
++static int validate_luks2_json_object(json_object *jobj_hdr, uint64_t length)
+ {
+ 	int r;
+ 
+@@ -487,14 +493,14 @@ static int validate_luks2_json_object(js
+ 		return r;
+ 	}
+ 
+-	r = LUKS2_hdr_validate(jobj_hdr);
++	r = LUKS2_hdr_validate(jobj_hdr, length);
+ 	if (r) {
+ 		log_dbg("Repairing JSON metadata.");
+ 		/* try to correct known glitches */
+ 		LUKS2_hdr_repair(jobj_hdr);
+ 
+ 		/* run validation again */
+-		r = LUKS2_hdr_validate(jobj_hdr);
++		r = LUKS2_hdr_validate(jobj_hdr, length);
+ 	}
+ 
+ 	if (r)
+@@ -516,7 +522,7 @@ static json_object *parse_and_validate_j
+ 
+ 	r = validate_json_area(json_area, offset, length);
+ 	if (!r)
+-		r = validate_luks2_json_object(jobj);
++		r = validate_luks2_json_object(jobj, length);
+ 
+ 	if (r) {
+ 		json_object_put(jobj);
+diff -rupN cryptsetup-2.0.3.old/lib/luks2/luks2_internal.h cryptsetup-2.0.3/lib/luks2/luks2_internal.h
+--- cryptsetup-2.0.3.old/lib/luks2/luks2_internal.h	2019-03-27 21:06:52.048172644 +0100
++++ cryptsetup-2.0.3/lib/luks2/luks2_internal.h	2019-03-27 21:07:12.070978524 +0100
+@@ -73,7 +73,7 @@ void JSON_DBG(json_object *jobj, const c
+ json_object *json_contains(json_object *jobj, const char *name, const char *section,
+ 		      const char *key, json_type type);
+ 
+-int LUKS2_hdr_validate(json_object *hdr_jobj);
++int LUKS2_hdr_validate(json_object *hdr_jobj, uint64_t length);
+ int LUKS2_keyslot_validate(json_object *hdr_jobj, json_object *hdr_keyslot, const char *key);
+ int LUKS2_check_json_size(const struct luks2_hdr *hdr);
+ int LUKS2_token_validate(json_object *hdr_jobj, json_object *jobj_token, const char *key);
+diff -rupN cryptsetup-2.0.3.old/lib/luks2/luks2_json_metadata.c cryptsetup-2.0.3/lib/luks2/luks2_json_metadata.c
+--- cryptsetup-2.0.3.old/lib/luks2/luks2_json_metadata.c	2019-03-27 21:06:52.049172634 +0100
++++ cryptsetup-2.0.3/lib/luks2/luks2_json_metadata.c	2019-03-27 21:07:44.937659885 +0100
+@@ -446,7 +446,7 @@ int LUKS2_token_validate(json_object *hd
+ 	return 0;
+ }
+ 
+-static int hdr_validate_json_size(json_object *hdr_jobj)
++static int hdr_validate_json_size(json_object *hdr_jobj, uint64_t hdr_json_size)
+ {
+ 	json_object *jobj, *jobj1;
+ 	const char *json;
+@@ -460,12 +460,22 @@ static int hdr_validate_json_size(json_o
+ 	json_area_size = json_object_get_uint64(jobj1);
+ 	json_size = (uint64_t)strlen(json);
+ 
+-	return json_size > json_area_size ? 1 : 0;
++	if (hdr_json_size != json_area_size) {
++		log_dbg("JSON area size doesn't match value in binary header.");
++		return 1;
++	}
++
++	if (json_size > json_area_size) {
++		log_dbg("JSON doesn't fit in the designated area.");
++		return 1;
++	}
++
++	return 0;
+ }
+ 
+ int LUKS2_check_json_size(const struct luks2_hdr *hdr)
+ {
+-	return hdr_validate_json_size(hdr->jobj);
++	return hdr_validate_json_size(hdr->jobj, hdr->hdr_size - LUKS2_HDR_BIN_LEN);
+ }
+ 
+ static int hdr_validate_keyslots(json_object *hdr_jobj)
+@@ -830,7 +840,7 @@ static int hdr_validate_config(json_obje
+ 	return 0;
+ }
+ 
+-int LUKS2_hdr_validate(json_object *hdr_jobj)
++int LUKS2_hdr_validate(json_object *hdr_jobj, uint64_t json_size)
+ {
+ 	struct {
+ 		int (*validate)(json_object *);
+@@ -852,10 +862,8 @@ int LUKS2_hdr_validate(json_object *hdr_
+ 		if (checks[i].validate && checks[i].validate(hdr_jobj))
+ 			return 1;
+ 
+-	if (hdr_validate_json_size(hdr_jobj)) {
+-		log_dbg("Json header is too large.");
++	if (hdr_validate_json_size(hdr_jobj, json_size))
+ 		return 1;
+-	}
+ 
+ 	/* validate keyslot implementations */
+ 	if (LUKS2_keyslots_validate(hdr_jobj))
+@@ -903,7 +911,7 @@ int LUKS2_hdr_write(struct crypt_device
+ 	/* erase unused digests (no assigned keyslot or segment) */
+ 	LUKS2_digests_erase_unused(cd, hdr);
+ 
+-	if (LUKS2_hdr_validate(hdr->jobj))
++	if (LUKS2_hdr_validate(hdr->jobj, hdr->hdr_size - LUKS2_HDR_BIN_LEN))
+ 		return -EINVAL;
+ 
+ 	return LUKS2_disk_hdr_write(cd, hdr, crypt_metadata_device(cd));
+@@ -1650,7 +1658,7 @@ const char *LUKS2_get_cipher(struct luks
+ 		return NULL;
+ 
+ 	if (!json_object_object_get_ex(jobj2, "encryption", &jobj3))
+-		return NULL;
++		return "null";
+ 
+ 	return json_object_get_string(jobj3);
+ }

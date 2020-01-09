@@ -1,0 +1,21 @@
+diff -rupN cryptsetup-2.0.3.old/lib/luks2/luks2_json_metadata.c cryptsetup-2.0.3/lib/luks2/luks2_json_metadata.c
+--- cryptsetup-2.0.3.old/lib/luks2/luks2_json_metadata.c	2019-03-27 15:10:10.869610792 +0100
++++ cryptsetup-2.0.3/lib/luks2/luks2_json_metadata.c	2019-03-27 15:32:38.202382332 +0100
+@@ -402,7 +402,6 @@ static json_bool validate_intervals(int
+ 	return TRUE;
+ }
+ 
+-static int hdr_validate_areas(json_object *hdr_jobj);
+ int LUKS2_keyslot_validate(json_object *hdr_jobj, json_object *hdr_keyslot, const char *key)
+ {
+ 	json_object *jobj_key_size;
+@@ -419,9 +418,6 @@ int LUKS2_keyslot_validate(json_object *
+ 		return 1;
+ 	}
+ 
+-	if (hdr_validate_areas(hdr_jobj))
+-		return 1;
+-
+ 	return 0;
+ }
+ 
